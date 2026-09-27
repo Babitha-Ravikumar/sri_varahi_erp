@@ -1,0 +1,21 @@
+{
+  "name": "sri-varahi-erp-backend",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Sri Varahi ERP - Module 1: Actual Purchase, Inward & Auction Workflow (REST API)",
+  "main": "src/index.js",
+  "scripts": {
+    "start": "node src/index.js",
+    "dev": "node --watch src/index.js",
+    "migrate": "node src/database/migrate.js",
+    "seed": "node src/database/seed.js",
+    "cleanup": "node src/database/cleanup.js",
+    "test:scenarios": "node test/scenarios.js",
+    "test:auth": "node test/auth-flow.js"
+  },
+  "dependencies": {
+    "dotenv": "^16.4.5",
+    "express": "^4.19.2",
+    "pg": "^8.12.0"
+  }
+}

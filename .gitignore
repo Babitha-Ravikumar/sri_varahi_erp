@@ -1,0 +1,23 @@
+# dependencies
+node_modules/
+
+# env - never commit credentials
+.env
+backend/.env
+frontend/.env
+
+# logs / build
+*.log
+frontend/android/app/build/
+frontend/android/build/
+frontend/android/.gradle/
+frontend/.gradle-home/
+frontend/android/.gradle-home/
+rn-tmp/
+*.apk
+dist/
+.npm-cache/
+
+# OS
+.DS_Store
+Thumbs.db
