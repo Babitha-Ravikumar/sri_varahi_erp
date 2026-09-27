@@ -9,10 +9,12 @@
 import React, { useCallback, useState } from 'react';
 import { Text, Alert, View, StyleSheet } from 'react-native';
 import { get, post } from '../api';
-import { Card, Field, Btn, Screen, Row, C, Chip, SectionTitle, lotSeq } from '../components/ui';
+import { Card, Field, Btn, Screen, Row, C, lotSeq, Toolbar, ToolInput, DateField, SortToggle, ToolCount, ClearFilters, Empty } from '../components/ui';
 import SuccessModal from '../components/SuccessModal';
+import { useReference, refLabel } from '../reference';
 
 export default function LotDetailScreen({ nav, params }) {
+  const sources = useReference('purchase_source');
   const [lot, setLot] = useState(null);
   const [err, setErr] = useState('');
   const [rate, setRate] = useState('');
@@ -32,8 +34,16 @@ export default function LotDetailScreen({ nav, params }) {
   const [dateF, setDateF] = useState('');
   const [sort, setSort] = useState('newest'); // newest | oldest
 
-  const loadList = useCallback(async () => {
-    try { setLots(await get('/lots')); setErr(''); } catch (e) { setErr(e.message); }
+  function clearFilters() {
+    setQ('');
+    setDateF('');
+    setSort('newest');
+  }
+
+  // The selected date is filtered by the server (lot_date); no date = all lots.
+  const loadList = useCallback(async (date) => {
+    try { setLots(await get(`/lots?date=${encodeURIComponent(date || 'all')}`)); setErr(''); }
+    catch (e) { setErr(e.message); }
   }, []);
 
   const load = useCallback(async (id) => {
@@ -42,9 +52,11 @@ export default function LotDetailScreen({ nav, params }) {
   }, []);
 
   React.useEffect(() => {
-    if (listMode) loadList();
-    else if (params.lotId) load(params.lotId);
+    if (!listMode && params.lotId) load(params.lotId);
   }, [params.lotId]);
+  React.useEffect(() => {
+    if (listMode) loadList(dateF);
+  }, [listMode, dateF, loadList]);
 
   if (listMode) {
     const text = q.trim().toLowerCase();
@@ -53,10 +65,6 @@ export default function LotDetailScreen({ nav, params }) {
         // Lot-number search: matches the 3-digit form (001) or the full number.
         if (text && !lotSeq(l.lot_number).toLowerCase().includes(text)
                   && !String(l.lot_number).toLowerCase().includes(text)) return false;
-        if (dateF) {
-          const d = (l.created_at || '').slice(0, 10);
-          if (d !== dateF) return false;
-        }
         return true;
       })
       .sort((a, b) => {
@@ -65,31 +73,33 @@ export default function LotDetailScreen({ nav, params }) {
       });
 
     return (
-      <Screen title="Lots" nav={nav} onBack={nav.pop} error={err}>
-        <Card>
-          <SectionTitle>Filter Lots</SectionTitle>
-          <Field label="Search by Lot Number" value={q} onChangeText={setQ} placeholder="e.g. 001 / 010" />
-          <Field label="Date (YYYY-MM-DD)" value={dateF} onChangeText={setDateF} placeholder="e.g. 2026-09-27" />
-          <View style={s.chipRow}>
-            <Chip label="Newest First" active={sort === 'newest'} onPress={() => setSort('newest')} />
-            <Chip label="Oldest First" active={sort === 'oldest'} onPress={() => setSort('oldest')} />
-          </View>
-          <Text style={s.filterInfo}>{filtered.length} of {(lots || []).length} lots shown</Text>
-        </Card>
-
+      <Screen
+        title="Lots"
+        nav={nav}
+        onBack={nav.pop}
+        error={err}
+        toolbar={(
+          <Toolbar trailing={<ClearFilters onPress={clearFilters} />}>
+            <ToolInput value={q} onChangeText={setQ} placeholder="Lot no." />
+            <DateField value={dateF} onChange={setDateF} />
+            <SortToggle value={sort} onChange={setSort} />
+            <ToolCount shown={filtered.length} total={(lots || []).length} />
+          </Toolbar>
+        )}
+      >
         {filtered.map((l) => (
           <Card key={l.id}>
             <Row label={lotSeq(l.lot_number)} value={l.status} strong />
             <Row label="Vehicle / Party" value={`${l.vehicle_number || '-'} · ${l.party_name || '-'}`} />
-            <Row label="Quality" value={l.quality || '-'} />
+            <Row label="Quality Grade" value={l.quality || '-'} />
             <Row label="Total / Remaining" value={`${Number(l.total_quantity)} / ${Number(l.remaining_quantity)}`} />
             <Btn title="Open" kind="secondary" onPress={() => nav.push('lotDetail', { lotId: l.id })} />
           </Card>
         ))}
         {lots && filtered.length === 0 && (
-          <Text style={s.empty}>No lots match the current filters.</Text>
+          <Empty>No lots match the current filters.</Empty>
         )}
-        {lots && lots.length === 0 && <Text style={s.empty}>No lots yet.</Text>}
+        {lots && lots.length === 0 && <Empty>No lots yet.</Empty>}
       </Screen>
     );
   }
@@ -201,8 +211,8 @@ export default function LotDetailScreen({ nav, params }) {
         <Row label="Vehicle" value={lot.vehicle_number || '-'} />
         {lot.vehicle_number && lot.driver_name ? <Row label="Driver" value={lot.driver_name} /> : null}
         <Row label="Supplier / Party" value={lot.party_name || '-'} />
-        <Row label="Source" value={lot.purchase_source.replace(/_/g, ' ')} />
-        <Row label="Quality" value={lot.quality || '-'} />
+        <Row label="Source" value={refLabel(sources, lot.purchase_source)} />
+        <Row label="Quality Grade" value={lot.quality || '-'} />
         <Row label="Total Quantity" value={`${Number(lot.total_quantity)} boxes`} strong />
         <Row label="Pre-Auction" value={`${Number(lot.pre_auction_quantity)} boxes`} />
         <Row label="Allocated" value={`${Number(lot.allocated_quantity)} boxes`} />
@@ -304,9 +314,6 @@ function RateFixedModal({ lot, rateFixed, setRateFixed }) {
 const s = StyleSheet.create({
   t: { fontWeight: '700', marginBottom: 4 },
   hint: { fontSize: 12, color: C.muted, marginTop: 6 },
-  chipRow: { flexDirection: 'row', gap: 8, marginTop: 4 },
-  filterInfo: { fontSize: 12, color: C.muted, marginTop: 8 },
-  empty: { textAlign: 'center', color: C.muted, marginTop: 10 },
   workflowCard: { borderLeftWidth: 4, borderLeftColor: C.accent },
   workflowTitle: { fontSize: 15, fontWeight: '800', color: C.text, letterSpacing: 0.5, marginBottom: 4 },
   workflowSub: { fontSize: 12.5, color: C.muted, lineHeight: 18, marginBottom: 10 },

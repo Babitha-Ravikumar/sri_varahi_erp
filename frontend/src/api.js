@@ -37,6 +37,13 @@ export function clearSession() {
   currentUserId = null;
 }
 
+/** True when the signed-in user may open the given module (see modules.js). */
+export function canAccess(moduleKey) {
+  if (!currentUser) return false;
+  if (moduleKey === 'dashboard') return true;
+  return Array.isArray(currentUser.modules) && currentUser.modules.includes(moduleKey);
+}
+
 /** True while an admin still owes their forced first-login password reset. */
 export function needsPasswordReset() {
   return !!(currentUser && currentUser.must_change_password);
@@ -81,8 +88,8 @@ export function lotPdfUrl(lotId) {
 
 /* ---------- Auth API ---------- */
 
-export function login(role, username, password) {
-  return post('/auth/login', {role, username, password});
+export function login(username, password) {
+  return post('/auth/login', {username, password});
 }
 
 export function changePassword(currentPassword, newPassword) {
@@ -98,6 +105,16 @@ export function createAdminUser(details) {
 
 export function listAdminUsers() {
   return get('/auth/users');
+}
+
+/** Active roles from the Role master (assignable to new users). */
+export function listRoles() {
+  return get('/auth/roles');
+}
+
+/** Super Admin: update a user's active flag and/or module permissions. */
+export function updateUser(id, changes) {
+  return patch(`/auth/users/${id}`, changes);
 }
 
 export function requestResetOtp(contact) {

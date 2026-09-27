@@ -188,7 +188,7 @@ function renderLotPdf(lot) {
     ['Vehicle', lot.vehicle_number || '-'],
     ['Driver', lot.driver_name || '-'],
     ['Source', String(lot.purchase_source || '-').replace(/_/g, ' ')],
-    ['Quality', lot.quality || '-'],
+    ['Quality Grade', lot.quality || '-'],
     ['Total Boxes', String(Number(lot.total_quantity ?? 0))],
     ['Rate (per box)', lot.purchase_rate != null ? n2(lot.purchase_rate)
       : (lot.final_rate != null ? n2(lot.final_rate) : '-')],

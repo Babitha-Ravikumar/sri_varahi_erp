@@ -1,30 +1,35 @@
 /**
  * Billing - bills generated from allocations; pay screen available inline.
- * FILTERS: status (Paid / Unpaid / Part-paid), date, and lot-number search
- * (3-digit form supported) - all filters combine.
+ * FILTERS: status (Paid / Unpaid / Part-paid), date, lot-number search,
+ * newest/oldest sort - all filters combine.
  */
 import React, { useCallback, useState } from 'react';
 import { View, Text, Alert, Linking, StyleSheet } from 'react-native';
 import { get, post, billPdfUrl } from '../api';
-import { Card, Btn, Screen, Row, Field, Chip, SectionTitle, C, Badge, Empty, lotSeq } from '../components/ui';
+import {
+  Card, Btn, Screen, Row, Chip, C, Badge, Empty, lotSeq, localDateKey,
+  Toolbar, ToolInput, DateField, SortToggle, ToolCount, ClearFilters,
+} from '../components/ui';
 import SuccessModal from '../components/SuccessModal';
-
-const STATUS_CHIPS = [
-  { key: 'all', label: 'All' },
-  { key: 'paid', label: 'Paid' },
-  { key: 'unpaid', label: 'Unpaid' },
-  { key: 'part_paid', label: 'Partially Paid' },
-];
+import { useReference, refLabel } from '../reference';
 
 export default function BillingScreen({ nav }) {
+  const billStatuses = useReference('bill_status');
   const [bills, setBills] = useState(null);
   const [err, setErr] = useState('');
   const [paid, setPaid] = useState(null);
 
-  // filters (kept in state; list is refetched only when the date changes)
   const [statusF, setStatusF] = useState('all');
-  const [dateF, setDateF] = useState('all'); // 'all' or YYYY-MM-DD
+  const [dateF, setDateF] = useState('');
   const [lotQ, setLotQ] = useState('');
+  const [sort, setSort] = useState('newest');
+
+  function clearFilters() {
+    setStatusF('all');
+    setDateF('');
+    setLotQ('');
+    setSort('newest');
+  }
 
   const load = useCallback(async (date) => {
     try {
@@ -48,34 +53,41 @@ export default function BillingScreen({ nav }) {
     if (text && !lotSeq(b.lot_number).toLowerCase().includes(text)
               && !String(b.lot_number).toLowerCase().includes(text)) return false;
     return true;
+  }).sort((a, b) => {
+    const da = new Date(a.created_at || 0), db = new Date(b.created_at || 0);
+    return sort === 'newest' ? db - da : da - db;
   });
 
   return (
-    <Screen title="Billing" nav={nav} onBack={nav.pop} error={err}>
-      <Card>
-        <SectionTitle>Filter Bills</SectionTitle>
-        <Field label="Search by Lot Number" value={lotQ} onChangeText={setLotQ} placeholder="e.g. 001 / 010" />
-        <Field label="Date (YYYY-MM-DD, blank = all dates)" value={dateF === 'all' ? '' : dateF}
-          onChangeText={(t) => setDateF(t.trim() || 'all')} placeholder="e.g. 2026-09-27" />
-        <View style={s.chipRow}>
-          {STATUS_CHIPS.map((sc) => (
-            <Chip key={sc.key} label={sc.label} active={statusF === sc.key} onPress={() => setStatusF(sc.key)} />
+    <Screen
+      title="Billing"
+      nav={nav}
+      onBack={nav.pop}
+      error={err}
+      toolbar={(
+        <Toolbar trailing={<ClearFilters onPress={clearFilters} />}>
+          <ToolInput value={lotQ} onChangeText={setLotQ} placeholder="Lot no." />
+          <DateField value={dateF} onChange={setDateF} />
+          <Chip label="All" active={statusF === 'all'} onPress={() => setStatusF('all')} />
+          {billStatuses.filter((st) => st.selectable).map((st) => (
+            <Chip key={st.code} label={st.label} active={statusF === st.code} onPress={() => setStatusF(st.code)} />
           ))}
-        </View>
-        <Text style={s.filterInfo}>{filtered.length} of {(bills || []).length} bills shown</Text>
-      </Card>
-
+          <SortToggle value={sort} onChange={setSort} />
+          <ToolCount shown={filtered.length} total={(bills || []).length} />
+        </Toolbar>
+      )}
+    >
       {filtered.map((b) => (
         <Card key={b.id}>
           <View style={s.head}>
             <Text style={s.billNo}>{b.bill_number}</Text>
             <Badge tone={b.status === 'paid' ? 'success' : b.status === 'part_paid' ? 'warning' : 'danger'}>
-              {b.status.replace(/_/g, ' ')}
+              {refLabel(billStatuses, b.status)}
             </Badge>
           </View>
           <Row label="Customer" value={b.customer_name} />
           <Row label="Lot" value={lotSeq(b.lot_number)} />
-          <Row label="Date" value={(b.created_at || '').slice(0, 10)} />
+          <Row label="Date" value={localDateKey(b.created_at)} />
           <Row label="Amount" value={`₹${Number(b.total_amount)}`} strong />
           <Row label="Paid" value={`₹${Number(b.paid_amount)}`} />
           <Row label="Balance" value={`₹${Number(b.total_amount) - Number(b.paid_amount)}`} />
@@ -113,6 +125,4 @@ export default function BillingScreen({ nav }) {
 const s = StyleSheet.create({
   head: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6, gap: 8 },
   billNo: { fontSize: 15, fontWeight: '800', color: C.text, flexShrink: 1 },
-  chipRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 4 },
-  filterInfo: { fontSize: 12, color: C.muted, marginTop: 8 },
 });

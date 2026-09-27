@@ -44,12 +44,14 @@ async function lotDetail(lotId) {
 async function listLots({ date, status, q } = {}) {
   const params = [];
   let where = 'WHERE 1=1';
-  if (date) { params.push(date); where += ` AND l.lot_date = $${params.length}`; }
-  else where += ` AND l.lot_date >= current_date`; // today & forward by default
+  // date='all' → every date; YYYY-MM-DD → that day; none → today & forward.
+  if (date === 'all') { /* no date filter */ }
+  else if (date) { params.push(date); where += ` AND l.lot_date = $${params.length}`; }
+  else where += ` AND l.lot_date >= current_date`;
   if (status) { params.push(status); where += ` AND l.status = $${params.length}`; }
   if (q) { params.push(`%${q.toUpperCase()}%`); where += ` AND (UPPER(l.lot_number) LIKE $${params.length} OR UPPER(COALESCE(v.vehicle_number,'')) LIKE $${params.length})`; }
   const r = await query(
-    `SELECT l.id, l.lot_number, l.lot_date, l.status, l.total_quantity,
+    `SELECT l.id, l.lot_number, l.lot_date, l.status, l.created_at, l.total_quantity,
             l.pre_auction_quantity, l.allocated_quantity, l.remaining_quantity,
             v.vehicle_number, p.name AS party_name, l.quality
      FROM lots l

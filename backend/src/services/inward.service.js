@@ -61,14 +61,26 @@ async function createInward(source, data, user) {
       partyId: data.party_id, partyName: data.party_name, partyType: partyTypeMap[source],
     });
 
+    // Quality comes only from the Quality Grade master (active grades).
+    let grade = null;
+    if (data.quality_grade_id) {
+      const g = await client.query(
+        `SELECT id, grade_name FROM quality_grades WHERE id = $1 AND status = 'active'`,
+        [data.quality_grade_id]
+      );
+      if (!g.rows[0]) { const e = new Error('Quality grade not found or inactive'); e.status = 400; throw e; }
+      grade = g.rows[0];
+    }
+
     // INSERT ONCE - this is the single inward entry for the arrival
     const inwardR = await client.query(
       `INSERT INTO inwards (purchase_source, vehicle_id, vehicle_number, vehicle_name,
-                            driver_name, driver_phone, party_id, quality, quantity,
+                            driver_name, driver_phone, party_id, quality, quality_grade_id, quantity,
                             purchase_rate, selling_price, created_by)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12) RETURNING *`,
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13) RETURNING *`,
       [source, vehicleId, data.vehicle_number || null, data.vehicle_name || null,
-       data.driver_name || null, data.driver_phone || null, party.id, data.quality || null,
+       data.driver_name || null, data.driver_phone || null, party.id,
+       grade ? grade.grade_name : null, grade ? grade.id : null,
        quantity, data.purchase_rate ?? null, data.selling_price ?? null, user?.id || null]
     );
     const inward = inwardR.rows[0];
@@ -76,10 +88,10 @@ async function createInward(source, data, user) {
     // AUTO-FLOW: lot number + lot card, linked to vehicle/party/quality/quantity
     const lotNumber = await nextLotNumber(client);
     const lotR = await client.query(
-      `INSERT INTO lots (lot_number, inward_id, vehicle_id, party_id, quality, total_quantity)
-       VALUES ($1,$2,$3,$4,$5,$6)
+      `INSERT INTO lots (lot_number, inward_id, vehicle_id, party_id, quality, quality_grade_id, total_quantity)
+       VALUES ($1,$2,$3,$4,$5,$6,$7)
        RETURNING *`,
-      [lotNumber, inward.id, vehicleId, party.id, data.quality || null, quantity]
+      [lotNumber, inward.id, vehicleId, party.id, inward.quality, inward.quality_grade_id, quantity]
     );
     const lot = lotR.rows[0];
 

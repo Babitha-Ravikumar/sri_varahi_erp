@@ -9,6 +9,8 @@ import React, { useEffect, useReducer, useState } from 'react';
 import { StatusBar, BackHandler } from 'react-native';
 
 import Sidebar from './src/components/Sidebar';
+import { canAccess, getSession } from './src/api';
+import { moduleOfScreen } from './src/modules';
 
 import LoginScreen from './src/screens/LoginScreen';
 import ForgotPasswordScreen from './src/screens/ForgotPasswordScreen';
@@ -16,6 +18,8 @@ import ResetPasswordScreen from './src/screens/ResetPasswordScreen';
 import UserCreationScreen from './src/screens/UserCreationScreen';
 import DashboardScreen from './src/screens/DashboardScreen';
 import DrillDownScreen from './src/screens/DrillDownScreen';
+import TopCustomersScreen from './src/screens/TopCustomersScreen';
+import QualityGradeScreen from './src/screens/QualityGradeScreen';
 import SourceSelectScreen from './src/screens/SourceSelectScreen';
 import LocalFarmerScreen from './src/screens/LocalFarmerScreen';
 import LocalTraderScreen from './src/screens/LocalTraderScreen';
@@ -36,6 +40,8 @@ const SCREENS = {
   userCreation: UserCreationScreen,
   dashboard: DashboardScreen,
   drillDown: DrillDownScreen,
+  topCustomers: TopCustomersScreen,
+  qualityGrades: QualityGradeScreen,
   sourceSelect: SourceSelectScreen,
   localFarmer: LocalFarmerScreen,
   localTrader: LocalTraderScreen,
@@ -81,7 +87,10 @@ export default function App() {
   const current = state.stack[state.stack.length - 1];
   // Defensive: if a screen name isn't registered (e.g. a stale deep link),
   // fall back to the dashboard instead of crashing with "element type invalid".
-  const Screen_ = SCREENS[current.name] || DashboardScreen;
+  // Signed-in users also land on the dashboard for modules they may not open.
+  const moduleKey = moduleOfScreen(current.name);
+  const blocked = !!(getSession() && moduleKey && !canAccess(moduleKey));
+  const Screen_ = blocked ? DashboardScreen : (SCREENS[current.name] || DashboardScreen);
 
   const nav = {
     push: (name, params) => dispatch({ type: 'push', name, params }),
@@ -91,6 +100,7 @@ export default function App() {
     home: () => dispatch({ type: 'home' }),
     go: (name, params) => dispatch({ type: 'go', name, params }),
     openMenu: () => setMenuOpen(true),
+    newInward: canAccess('sourceSelect') ? () => dispatch({ type: 'go', name: 'sourceSelect' }) : undefined,
     screen: current.name,
   };
 

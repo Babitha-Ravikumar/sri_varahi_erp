@@ -6,7 +6,7 @@
 import React from 'react';
 import {
   View, Text, TextInput, TouchableOpacity, StyleSheet, ScrollView,
-  ActivityIndicator, Alert, StatusBar, Platform, Modal,
+  ActivityIndicator, Alert, StatusBar, Platform, Modal, Pressable,
 } from 'react-native';
 
 /**
@@ -43,6 +43,18 @@ export function lotSeq(lotNumber) {
   const s = String(lotNumber || '');
   const tail = s.split('-').pop();
   return /^\d{3}$/.test(tail) ? tail : s;
+}
+
+/**
+ * Local calendar day ('YYYY-MM-DD') of a Date, ISO timestamp or date string.
+ * Timestamps are compared by the device's day, never by the UTC prefix.
+ */
+export function localDateKey(value) {
+  if (!value) return '';
+  if (typeof value === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(value)) return value;
+  const d = value instanceof Date ? value : new Date(value);
+  if (isNaN(d.getTime())) return '';
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 }
 
 /* ---------- Buttons ---------- */
@@ -136,18 +148,49 @@ export function Chip({ label, active, onPress }) {
  * All filter controls sit in ONE line (scrolls horizontally if needed);
  * no separate filter card/box.
  */
-export function Toolbar({ children }) {
+export function Toolbar({ children, trailing }) {
   return (
-    <ScrollView
-      horizontal
-      showsHorizontalScrollIndicator={false}
-      style={s.toolbarWrap}
-      contentContainerStyle={s.toolbar}
-      keyboardShouldPersistTaps="handled"
-    >
-      {children}
-    </ScrollView>
+    <View style={s.toolbarWrap}>
+      <ScrollView
+        horizontal
+        showsHorizontalScrollIndicator={false}
+        style={s.toolbarScroll}
+        contentContainerStyle={s.toolbar}
+        keyboardShouldPersistTaps="handled"
+      >
+        {children}
+      </ScrollView>
+      {trailing || null}
+    </View>
   );
+}
+
+/** Compact Clear control for the filter toolbar — resets every filter at once. */
+export function ClearFilters({ onPress }) {
+  return (
+    <TouchableOpacity
+      style={s.clearBtn}
+      onPress={onPress}
+      accessibilityRole="button"
+      accessibilityLabel="Clear filters"
+    >
+      <Text style={s.clearBtnText}>Clear</Text>
+    </TouchableOpacity>
+  );
+}
+
+/** Newest / Oldest sort controls for the filter toolbar. */
+export function SortToggle({ value, onChange }) {
+  return (
+    <>
+      <Chip label="Newest" active={value === 'newest'} onPress={() => onChange('newest')} />
+      <Chip label="Oldest" active={value === 'oldest'} onPress={() => onChange('oldest')} />
+    </>
+  );
+}
+
+export function ToolCount({ shown, total }) {
+  return <Text style={s.toolCount}>{shown} / {total}</Text>;
 }
 
 /** Compact search input used inside the filter Toolbar. */
@@ -164,6 +207,60 @@ export function ToolInput({ value, onChangeText, placeholder, icon = '🔍' }) {
         autoCorrect={false}
         underlineColorAndroid="transparent"
       />
+      {!!value && (
+        <TouchableOpacity onPress={() => onChangeText('')} accessibilityRole="button" accessibilityLabel={`Clear ${placeholder}`}>
+          <Text style={s.toolClear}>✕</Text>
+        </TouchableOpacity>
+      )}
+    </View>
+  );
+}
+
+/**
+ * Compact dropdown pill for the filter Toolbar. Shows the selected option's
+ * short label (or the allLabel); tapping opens a modal list to choose.
+ * options: [{ value, label }]
+ */
+export function ToolSelect({ options, value, onChange, allLabel = 'All', icon, testID }) {
+  const [open, setOpen] = React.useState(false);
+  const selected = options.find((o) => String(o.value) === String(value));
+  return (
+    <View>
+      <TouchableOpacity
+        style={[s.dateBtn, selected ? s.dateBtnActive : null]}
+        onPress={() => setOpen(true)}
+        accessibilityRole="button"
+        accessibilityLabel={selected ? selected.label : allLabel}
+        testID={testID}
+      >
+        {icon ? <Text style={s.dateIcon}>{icon}</Text> : null}
+        <Text style={[s.dateText, selected ? s.dateTextActive : null]} numberOfLines={1}>
+          {selected ? selected.label : allLabel}
+        </Text>
+        <Text style={s.toolCaret}>▾</Text>
+      </TouchableOpacity>
+      <Modal transparent visible={open} animationType="fade" onRequestClose={() => setOpen(false)}>
+        <TouchableOpacity style={s.toolSelOverlay} activeOpacity={1} onPress={() => setOpen(false)}>
+          <View style={s.toolSelCard}>
+            <ScrollView style={{ maxHeight: 340 }} nestedScrollEnabled keyboardShouldPersistTaps="handled">
+              {[{ value: '', label: allLabel }, ...options].map((o) => {
+                const on = String(o.value) === String(value) || (o.value === '' && !selected);
+                return (
+                  <TouchableOpacity
+                    key={String(o.value)}
+                    style={[s.pickItem, on && s.pickItemActive]}
+                    onPress={() => { onChange(o.value); setOpen(false); }}
+                    accessibilityRole="button"
+                    accessibilityState={{ selected: on }}
+                  >
+                    <Text style={[s.pickItemText, on && s.pickItemTextActive]} numberOfLines={1}>{o.label}</Text>
+                  </TouchableOpacity>
+                );
+              })}
+            </ScrollView>
+          </View>
+        </TouchableOpacity>
+      </Modal>
     </View>
   );
 }
@@ -175,7 +272,7 @@ export function ToolInput({ value, onChangeText, placeholder, icon = '🔍' }) {
 export function DateField({ value, onChange, allLabel = 'All Dates' }) {
   const [open, setOpen] = React.useState(false);
   return (
-    <View>
+    <View style={s.dateField}>
       <TouchableOpacity
         style={[s.dateBtn, value ? s.dateBtnActive : null]}
         onPress={() => setOpen(true)}
@@ -223,6 +320,8 @@ export function DatePickerModal({ visible, value, onPick, onClose }) {
       setCur({ y: d.getFullYear(), m: d.getMonth() });
       setMountedVisible(true);
     }
+    // re-seed the visible month each time the picker opens (or value changes)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [visible]);
 
   if (!visible || !mountedVisible) return null;
@@ -234,6 +333,7 @@ export function DatePickerModal({ visible, value, onPick, onClose }) {
     ...Array.from({ length: daysInMonth }, (_, i) => i + 1),
   ];
   const iso = (day) => `${cur.y}-${String(cur.m + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+  const todayKey = localDateKey(new Date());
   const shift = (n) => {
     const d = new Date(cur.y, cur.m + n, 1);
     setCur({ y: d.getFullYear(), m: d.getMonth() });
@@ -262,12 +362,21 @@ export function DatePickerModal({ visible, value, onPick, onClose }) {
                 : (
                   <TouchableOpacity
                     key={'d' + i}
-                    style={[s.calCell, s.calDay, value === iso(day) && s.calDayActive]}
+                    style={[
+                      s.calCell, s.calDay,
+                      iso(day) === todayKey && s.calDayToday,
+                      value === iso(day) && s.calDayActive,
+                    ]}
                     onPress={() => onPick(iso(day))}
                     accessibilityRole="button"
-                    accessibilityLabel={iso(day)}
+                    accessibilityLabel={iso(day) === todayKey ? `${iso(day)} (today)` : iso(day)}
+                    accessibilityState={{ selected: value === iso(day) }}
                   >
-                    <Text style={[s.calDayText, value === iso(day) && s.calDayTextActive]}>{day}</Text>
+                    <Text style={[
+                      s.calDayText,
+                      iso(day) === todayKey && s.calDayTextToday,
+                      value === iso(day) && s.calDayTextActive,
+                    ]}>{day}</Text>
                   </TouchableOpacity>
                 )
             ))}
@@ -275,6 +384,9 @@ export function DatePickerModal({ visible, value, onPick, onClose }) {
           <View style={s.calFoot}>
             <TouchableOpacity style={s.calBtn} onPress={onClose} accessibilityRole="button">
               <Text style={s.calBtnText}>Cancel</Text>
+            </TouchableOpacity>
+            <TouchableOpacity style={s.calBtn} onPress={() => onPick(todayKey)} accessibilityRole="button" accessibilityLabel="Pick today">
+              <Text style={s.calBtnText}>Today</Text>
             </TouchableOpacity>
             <TouchableOpacity style={[s.calBtn, s.calBtnPrimary]} onPress={() => onPick('')} accessibilityRole="button">
               <Text style={s.calBtnTextPrimary}>All Dates</Text>
@@ -481,6 +593,48 @@ export function Field({ label, value, onChangeText, placeholder, keyboard = 'def
   );
 }
 
+/** Simple dropdown for a short fixed option list ({ value, label }). */
+export function Dropdown({ label, options, value, onChange, required }) {
+  const [open, setOpen] = React.useState(false);
+  const selected = options.find((o) => o.value === value);
+  return (
+    <View style={s.fieldWrap}>
+      {label ? (
+        <Text style={s.fieldLabel}>
+          {label}
+          {required ? <Text style={s.required}> *</Text> : null}
+        </Text>
+      ) : null}
+      <TouchableOpacity
+        style={[s.inputTouchable, open && s.inputFocused]}
+        onPress={() => setOpen(!open)}
+        accessibilityRole="button"
+        accessibilityLabel={label ? `${label}: ${selected ? selected.label : 'not selected'}` : undefined}
+      >
+        <Text style={{ color: selected ? Colors.text : Colors.muted, fontSize: 15, fontWeight: selected ? '600' : '400' }} numberOfLines={1}>
+          {selected ? selected.label : 'Select…'}
+        </Text>
+        <Text style={s.pickerCaret}>{open ? '▴' : '▾'}</Text>
+      </TouchableOpacity>
+      {open && (
+        <View style={s.pickList}>
+          {options.map((o) => (
+            <TouchableOpacity
+              key={o.value}
+              style={[s.pickItem, o.value === value && s.pickItemActive]}
+              onPress={() => { onChange(o.value); setOpen(false); }}
+              accessibilityRole="button"
+              accessibilityState={{ selected: o.value === value }}
+            >
+              <Text style={[s.pickItemText, o.value === value && s.pickItemTextActive]}>{o.label}</Text>
+            </TouchableOpacity>
+          ))}
+        </View>
+      )}
+    </View>
+  );
+}
+
 /** Searchable picker: type to filter, tap to select. */
 export function Picker({ label, items, selectedId, onSelect, placeholder, renderLabel }) {
   const [q, setQ] = React.useState('');
@@ -552,43 +706,53 @@ export function Picker({ label, items, selectedId, onSelect, placeholder, render
 /**
  * Screen shell with the FIXED Sri Varahi ERP header (stays visible while
  * scrolling - it sits above the ScrollView). Header layout:
- *   LEFT column  : Back button (top), menu ☰ button (below)
- *   CENTER       : "SRI VARAHI ERP" brand line over the screen title
- * Pass `nav` to show the ☰ sidebar-navigation button (main module screens).
+ *   LEFT   : Back (only when onBack is set) — circular chevron, 44pt hit area
+ *   CENTER : "SRI VARAHI ERP" brand line over the screen title
+ *   RIGHT  : "+" next to menu ☰ — the screen's own headerAction
+ *            ({ label, onPress, testID }) or, by default, New Inward
+ * Back and the right-hand icons never share a column, so they cannot
+ * overlap the title.
  */
-export function Screen({ children, onBack, title, error, nav }) {
-  return (
+export function Screen({ children, onBack, title, error, nav, toolbar, headerAction }) {
+  const plus = headerAction
+    || (nav && nav.openMenu && nav.newInward
+      ? { label: 'New Inward', onPress: nav.newInward, testID: 'header-new-inward' }
+      : null);  return (
     <View style={s.screen}>
       <StatusBar barStyle="light-content" backgroundColor={Colors.primaryDark} />
       <View style={s.header}>
-        <View style={s.headerLeft}>
+        <View style={s.headerSide}>
           {onBack ? (
             <TouchableOpacity
               onPress={onBack}
               style={s.backBtn}
+              hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}
               accessibilityRole="button"
               accessibilityLabel="Go back"
             >
-              <Text style={s.backIcon}>←</Text>
+              <View style={s.backChevron} />
             </TouchableOpacity>
-          ) : <View style={s.navBtnPlaceholder} />}
+          ) : null}
+        </View>
+        <View style={s.headerTitles}>
+          <Text style={s.brandLine}>SRI VARAHI ERP</Text>
+          <Text style={s.headerTitle} numberOfLines={1} ellipsizeMode="tail">{title}</Text>
+        </View>
+        <View style={[s.headerSide, s.headerSideRight, !!plus && s.headerSideWide]}>
+          {plus ? <HeaderPlusButton {...plus} /> : null}
           {nav && nav.openMenu ? (
             <TouchableOpacity
               onPress={nav.openMenu}
               style={s.menuBtn}
+              hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}
               accessibilityRole="button"
               accessibilityLabel="Open navigation menu"
               testID="open-sidebar"
             >
               <Text style={s.menuIcon}>☰</Text>
             </TouchableOpacity>
-          ) : <View style={s.navBtnPlaceholder} />}
+          ) : null}
         </View>
-        <View style={s.headerTitles}>
-          <Text style={s.brandLine}>SRI VARAHI ERP</Text>
-          <Text style={s.headerTitle} numberOfLines={1} ellipsizeMode="tail">{title}</Text>
-        </View>
-        <View style={s.headerRight} />
       </View>
       {error ? (
         <View style={s.errorBar} accessibilityLiveRegion="polite">
@@ -596,6 +760,7 @@ export function Screen({ children, onBack, title, error, nav }) {
           <Text style={s.errorText}>{error}</Text>
         </View>
       ) : null}
+      {toolbar || null}
       <ScrollView
         style={s.body}
         contentContainerStyle={{ padding: 14, paddingBottom: 44 }}
@@ -604,6 +769,63 @@ export function Screen({ children, onBack, title, error, nav }) {
       >
         {children}
       </ScrollView>
+    </View>
+  );
+}
+
+/**
+ * Header action button. Two forms:
+ *  - icon-only "+" (default; tooltip shows the label on press/long-press)
+ *  - labeled pill "＋ <label>" when showLabel is set (e.g. "＋ Create User")
+ */
+function HeaderPlusButton({ label, onPress, testID, showLabel }) {
+  const [tip, setTip] = React.useState(false);
+  const hideTimer = React.useRef(null);
+  const show = () => { if (!showLabel) { clearTimeout(hideTimer.current); setTip(true); } };
+  const hideSoon = (ms = 900) => {
+    clearTimeout(hideTimer.current);
+    hideTimer.current = setTimeout(() => setTip(false), ms);
+  };
+  React.useEffect(() => () => clearTimeout(hideTimer.current), []);
+
+  if (showLabel) {
+    return (
+      <Pressable
+        onPress={onPress}
+        hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}
+        style={({ pressed }) => [s.headerLabelBtn, pressed && s.newInwardBtnPressed]}
+        accessibilityRole="button"
+        accessibilityLabel={label}
+        testID={testID}
+      >
+        <Text style={s.headerLabelBtnText} numberOfLines={1}>＋ {label}</Text>
+      </Pressable>
+    );
+  }
+
+  return (
+    <View style={s.newInwardWrap}>
+      <Pressable
+        onPress={() => { setTip(false); onPress(); }}
+        onPressIn={show}
+        onPressOut={() => hideSoon()}
+        onLongPress={() => { show(); hideSoon(1600); }}
+        onHoverIn={show}
+        onHoverOut={() => hideSoon(0)}
+        hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}
+        style={({ pressed }) => [s.newInwardBtn, pressed && s.newInwardBtnPressed]}
+        accessibilityRole="button"
+        accessibilityLabel={label}
+        testID={testID}
+      >
+        <Text style={s.newInwardPlus}>+</Text>
+      </Pressable>
+      {tip ? (
+        <View style={s.tooltip} pointerEvents="none">
+          <View style={s.tooltipArrow} />
+          <Text style={s.tooltipText} numberOfLines={1}>{label}</Text>
+        </View>
+      ) : null}
     </View>
   );
 }
@@ -628,22 +850,97 @@ const s = StyleSheet.create({
     alignItems: 'center',
     backgroundColor: Colors.primary,
     paddingTop: Platform.OS === 'android' ? (StatusBar.currentHeight || 24) + 6 : 44,
-    paddingBottom: 8,
+    paddingBottom: 10,
     paddingHorizontal: 10,
+    minHeight: 56,
     elevation: 4,
+    zIndex: 10,
   },
-  headerLeft: { width: 46, alignItems: 'center', justifyContent: 'center' },
-  headerRight: { width: 8 },
-  headerTitles: { flex: 1, marginLeft: 4 },
+  headerSide: {
+    width: 48,
+    minHeight: 44,
+    alignItems: 'flex-start',
+    justifyContent: 'center',
+  },
+  headerSideRight: { alignItems: 'center', justifyContent: 'flex-end', flexDirection: 'row' },
+  headerSideWide: { width: 'auto', gap: 8 },
+  newInwardWrap: { position: 'relative', zIndex: 10 },
+  newInwardBtn: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: Colors.accent,
+    alignItems: 'center',
+    justifyContent: 'center',
+    elevation: 2,
+  },
+  newInwardBtnPressed: { backgroundColor: Colors.accentDark },
+  newInwardPlus: { color: Colors.primaryDark, fontSize: 24, fontWeight: '800', lineHeight: 26, marginTop: -1 },
+  /* labeled header action (e.g. "＋ Create User") */
+  headerLabelBtn: {
+    backgroundColor: Colors.accent, borderRadius: 999, minHeight: 36,
+    paddingHorizontal: 13, alignItems: 'center', justifyContent: 'center', elevation: 2,
+  },
+  headerLabelBtnText: { color: Colors.primaryDark, fontSize: 13, fontWeight: '800', letterSpacing: 0.2 },
+  tooltip: {
+    position: 'absolute',
+    top: 48,
+    right: -8,
+    backgroundColor: Colors.text,
+    borderRadius: 6,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    elevation: 6,
+    zIndex: 20,
+  },
+  tooltipArrow: {
+    position: 'absolute',
+    top: -5,
+    right: 22,
+    width: 10,
+    height: 10,
+    backgroundColor: Colors.text,
+    transform: [{ rotate: '45deg' }],
+  },
+  tooltipText: { color: '#fff', fontSize: 12, fontWeight: '700', minWidth: 76, textAlign: 'center' },
+  headerTitles: {
+    flex: 1,
+    paddingHorizontal: 8,
+    justifyContent: 'center',
+    minWidth: 0,
+  },
   brandLine: { color: Colors.accent, fontSize: 9.5, fontWeight: '800', letterSpacing: 1.6 },
   headerTitle: {
     color: '#fff', fontSize: 16, fontWeight: '700', letterSpacing: 0.3,
   },
-  backBtn: { alignItems: 'center', justifyContent: 'center', width: 44, height: 34 },
-  menuBtn: { alignItems: 'center', justifyContent: 'center', width: 44, height: 30 },
-  navBtnPlaceholder: { width: 44, height: 34 },
-  backIcon: { color: '#fff', fontSize: 22, fontWeight: '700', lineHeight: 24 },
-  menuIcon: { color: '#fff', fontSize: 19, fontWeight: '800', lineHeight: 21 },
+  backBtn: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: 'rgba(255,255,255,0.12)',
+    borderWidth: 1.5,
+    borderColor: Colors.accent,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  backChevron: {
+    width: 11,
+    height: 11,
+    borderLeftWidth: 2.4,
+    borderBottomWidth: 2.4,
+    borderColor: '#fff',
+    transform: [{ rotate: '45deg' }],
+    marginLeft: 3,
+  },
+  menuBtn: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: 'rgba(255,255,255,0.12)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  menuIcon: { color: '#fff', fontSize: 18, fontWeight: '800', lineHeight: 22 },
   body: { flex: 1 },
 
   card: {
@@ -681,23 +978,57 @@ const s = StyleSheet.create({
   badgeText: { fontSize: 11, fontWeight: '700', textTransform: 'uppercase', letterSpacing: 0.5 },
 
   chip: {
-    borderRadius: 999, paddingHorizontal: 13, paddingVertical: 7,
+    borderRadius: 999, paddingHorizontal: 12, paddingVertical: 7, height: 36,
     backgroundColor: '#fff', borderWidth: 1, borderColor: Colors.border,
+    alignItems: 'center', justifyContent: 'center',
   },
   chipActive: { backgroundColor: Colors.primary, borderColor: Colors.primary, elevation: 1 },
   chipText: { fontSize: 12.5, fontWeight: '700', color: Colors.muted },
   chipTextActive: { color: '#fff' },
 
   /* filter toolbar (slim single-line strip below the header) */
-  toolbarWrap: { flexGrow: 0, backgroundColor: '#fff', borderBottomWidth: 1, borderBottomColor: Colors.border },
-  toolbar: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingHorizontal: 10, paddingVertical: 8 },
+  toolbarWrap: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#fff',
+    borderBottomWidth: 1,
+    borderBottomColor: Colors.border,
+    paddingRight: 8,
+  },
+  toolbarScroll: { flex: 1 },
+  toolbar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+    minHeight: 52,
+  },
+  clearBtn: {
+    height: 36,
+    paddingHorizontal: 14,
+    borderRadius: 999,
+    borderWidth: 1.5,
+    borderColor: Colors.tomato,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginLeft: 4,
+  },
+  clearBtnText: {
+    fontSize: 12.5,
+    fontWeight: '800',
+    color: Colors.tomato,
+    letterSpacing: 0.3,
+  },
   toolInputWrap: {
     flexDirection: 'row', alignItems: 'center', gap: 6,
     backgroundColor: Colors.bg, borderRadius: 999, borderWidth: 1, borderColor: Colors.border,
     paddingHorizontal: 10, height: 36, minWidth: 150,
   },
   toolInputIcon: { fontSize: 13 },
-  toolInput: { flex: 1, padding: 0, fontSize: 13, color: Colors.text, height: 34 },
+  toolInput: { flex: 1, padding: 0, fontSize: 13, color: Colors.text, height: 34, minWidth: 90 },
+  toolCount: { fontSize: 12, fontWeight: '700', color: Colors.muted, paddingHorizontal: 4 },
+  dateField: { alignSelf: 'center' },
   dateBtn: {
     flexDirection: 'row', alignItems: 'center', gap: 6, height: 36,
     backgroundColor: '#fff', borderRadius: 999, borderWidth: 1, borderColor: Colors.border,
@@ -709,6 +1040,10 @@ const s = StyleSheet.create({
   dateTextActive: { color: Colors.primary },
   dateClear: { paddingLeft: 6 },
   dateClearText: { fontSize: 12, color: Colors.muted, fontWeight: '800' },
+  toolClear: { fontSize: 12, color: Colors.muted, fontWeight: '800', paddingHorizontal: 2 },
+  toolCaret: { color: Colors.muted, fontSize: 12, marginLeft: 4 },
+  toolSelOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.45)', alignItems: 'center', justifyContent: 'center', padding: 24 },
+  toolSelCard: { width: '100%', maxWidth: 340, backgroundColor: '#fff', borderRadius: 12, padding: 6, elevation: 6 },
 
   /* calendar popup */
   calOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.55)', alignItems: 'center', justifyContent: 'center', padding: 24 },
@@ -724,7 +1059,9 @@ const s = StyleSheet.create({
   calDow: { width: '14.28%', textAlign: 'center', fontSize: 11, fontWeight: '800', color: Colors.accentDark, paddingVertical: 4 },
   calCell: { width: '14.28%', alignItems: 'center', justifyContent: 'center' },
   calDay: { paddingVertical: 7 },
-  calDayActive: { backgroundColor: Colors.primary, borderRadius: 999 },
+  calDayToday: { borderRadius: 999, borderWidth: 2, borderColor: Colors.accent, backgroundColor: '#fdf6e0' },
+  calDayTextToday: { color: Colors.primary, fontWeight: '800' },
+  calDayActive: { backgroundColor: Colors.primary, borderColor: Colors.primary, borderRadius: 999 },
   calDayText: { fontSize: 13.5, color: Colors.text, fontWeight: '600' },
   calDayTextActive: { color: '#fff', fontWeight: '800' },
   calFoot: { flexDirection: 'row', gap: 8, padding: 12, paddingTop: 4 },
@@ -793,6 +1130,8 @@ const s = StyleSheet.create({
     padding: 13, borderBottomWidth: 1, borderBottomColor: '#f0f2ee', backgroundColor: '#fff',
   },
   pickItemText: { fontSize: 15, color: Colors.text },
+  pickItemActive: { backgroundColor: Colors.primaryLight },
+  pickItemTextActive: { color: Colors.primary, fontWeight: '700' },
   mutedSmall: { padding: 10, color: Colors.muted, fontSize: 12, lineHeight: 16 },
 
   errorBar: {

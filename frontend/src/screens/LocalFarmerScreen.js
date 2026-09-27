@@ -1,54 +1,53 @@
 /** LOCAL FARMER inward: Vehicle → Farmer → Quality → Quantity → SAVE → Lot + Lot Card. */
-import React, { useEffect, useState } from 'react';
+import React, { useState } from 'react';
 import { Text } from 'react-native';
-import { get, post } from '../api';
-import { Card, Field, Btn, Screen, C } from '../components/ui';
+import { post } from '../api';
+import { Card, Field, Btn, Screen, C, Dropdown } from '../components/ui';
 import LotCreatedModal from '../components/LotCreatedModal';
-import VehiclePicker from '../components/VehiclePicker';
+import VehiclePicker, { useVehicleField } from '../components/VehiclePicker';
+import { useQualityGrades, gradeOptions } from '../qualityGrades';
 
 export default function LocalFarmerScreen({ nav }) {
-  const [vehicles, setVehicles] = useState([]);
-  const [vehicleId, setVehicleId] = useState(null);
+  const { grades } = useQualityGrades();
   const [partyName, setPartyName] = useState('');
-  const [quality, setQuality] = useState('');
+  const [quality, setQuality] = useState(null);
   const [quantity, setQuantity] = useState('');
   const [saving, setSaving] = useState(false);
   const [err, setErr] = useState('');
   // "Lot Created" popup state
   const [created, setCreated] = useState(null); // { lotId, lotNumber, boxes }
-
-  async function load() {
-    try {
-      setVehicles(await get('/vehicles'));
-    } catch (e) { setErr(e.message); }
-  }
-  useEffect(() => { load(); }, []);
+  const vehicle = useVehicleField({ onError: setErr });
 
   function anotherEntry() {
     setCreated(null);
-    setPartyName(''); setQuality(''); setQuantity('');
+    setPartyName(''); setQuality(null); setQuantity('');
   }
 
   async function save() {
     setSaving(true); setErr('');
     try {
+      // Local-farmer inwards reference the Vehicle Master; a newly typed
+      // vehicle is added to the master first.
+      const v = await vehicle.ensureInMaster();
       const r = await post('/inwards/local-farmer', {
-        vehicle_id: vehicleId, party_name: partyName, quality, quantity: Number(quantity),
+        vehicle_id: v.id, party_name: partyName, quality_grade_id: quality || undefined, quantity: Number(quantity),
       });
-      setCreated({ lotId: r.lot.id, lotNumber: r.lot.lot_number, boxes: r.lot.total_quantity });
+      setCreated({
+        lotId: r.lot.id, lotNumber: r.lot.lot_number, boxes: r.lot.total_quantity,
+        vehicleNumber: v.vehicle_number, driverName: v.driver_name,
+      });
     } catch (e) { setErr(e.message); }
     finally { setSaving(false); }
   }
 
-  const valid = vehicleId && partyName.trim() && Number(quantity) > 0;
+  const valid = vehicle.valid && partyName.trim() && Number(quantity) > 0;
 
   return (
     <Screen title="Local Farmer Inward" nav={nav} onBack={nav.pop} error={err}>
       <Card>
-        <VehiclePicker vehicles={vehicles} selectedId={vehicleId} onSelect={setVehicleId}
-          onAddNew={() => nav.push('vehicleMaster')} />
+        <VehiclePicker {...vehicle.fieldProps} />
         <Field label="Farmer / Party name" value={partyName} onChangeText={setPartyName} placeholder="e.g. Koteswara Rao" />
-        <Field label="Quality" value={quality} onChangeText={setQuality} placeholder="e.g. A Grade" />
+        <Dropdown label="Quality Grade" options={gradeOptions(grades)} value={quality} onChange={setQuality} />
         <Field label="Quantity (boxes)" value={quantity} onChangeText={setQuantity} keyboard="numeric" placeholder="e.g. 10" />
         <Btn title={saving ? 'Saving…' : 'SAVE — Create Lot'} onPress={save} disabled={!valid || saving} kind="accent" />
         <Text style={s.hint}>Lot number & Lot Card are generated automatically on save.</Text>
@@ -62,8 +61,8 @@ export default function LocalFarmerScreen({ nav }) {
         boxes={created?.boxes}
         amount={null}
         extraRows={[
-          ['Vehicle', (vehicles.find((v) => String(v.id) === String(vehicleId)) || {}).vehicle_number || '-'],
-          ['Driver', (vehicles.find((v) => String(v.id) === String(vehicleId)) || {}).driver_name || '-'],
+          ['Vehicle', created?.vehicleNumber || '-'],
+          ['Driver', created?.driverName || '-'],
           ['Party', partyName],
         ]}
         actions={[

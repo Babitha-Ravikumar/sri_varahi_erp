@@ -17,6 +17,7 @@ module.exports = {
     user: process.env.DB_USER,
     password: process.env.DB_PASSWORD,
     schema: process.env.DB_SCHEMA,
+    timezone: process.env.DB_TIMEZONE || 'Asia/Kolkata',
   },
   port: Number(process.env.PORT || 3000),
   env: process.env.NODE_ENV || 'development',

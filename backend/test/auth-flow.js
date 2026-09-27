@@ -158,11 +158,38 @@ async function call(method, path, body, headers = {}) {
   });
   ok("ERP access granted after reset", r.status === 200);
   r = await call("POST", "/auth/login", {
-    role: "super_admin",
     username: ADMIN_USERNAME,
     password: "Ravi@2024",
   });
-  ok("admin cannot log in as Super Admin role", r.status === 401);
+  ok(
+    "role is taken from the account (no role on login)",
+    r.status === 200 && r.data.user.role === "admin" && Array.isArray(r.data.user.modules),
+  );
+
+  console.log("5b) Inactive users cannot log in");
+  r = await call("PATCH", `/auth/users/${adminId}`, { active: false }, SA);
+  ok("super admin deactivates user", r.status === 200 && r.data.active === false);
+  r = await call("POST", "/auth/login", {
+    username: ADMIN_USERNAME,
+    password: "Ravi@2024",
+  });
+  ok(
+    "inactive user blocked with clear message",
+    r.status === 403 && r.data.error === "This user is inactive. Please contact the administrator.",
+  );
+  r = await call("PATCH", `/auth/users/${adminId}`, { active: true, modules: ["lots", "billing"] }, SA);
+  ok(
+    "super admin reactivates user and sets modules",
+    r.status === 200 && r.data.active === true && r.data.modules.join(",") === "lots,billing",
+  );
+  r = await call("POST", "/auth/login", {
+    username: ADMIN_USERNAME,
+    password: "Ravi@2024",
+  });
+  ok(
+    "reactivated user logs in with only enabled modules",
+    r.status === 200 && r.data.user.modules.join(",") === "lots,billing",
+  );
 
   console.log("6) Forgot password with OTP");
   r = await call("POST", "/auth/forgot-password/otp", {

@@ -6,7 +6,10 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import { View, Text, StyleSheet, Alert, Linking } from 'react-native';
 import { get, post, billPdfUrl } from '../api';
-import { Card, Field, SearchSelect, ComboPicker, Btn, Screen, Row, C, lotSeq } from '../components/ui';
+import {
+  Card, Field, SearchSelect, ComboPicker, Btn, Screen, Row, C, lotSeq,
+  Toolbar, DateField, ToolCount, ClearFilters,
+} from '../components/ui';
 import SuccessModal from '../components/SuccessModal';
 
 export default function LiveAuctionScreen({ nav, params }) {
@@ -28,17 +31,21 @@ export default function LiveAuctionScreen({ nav, params }) {
   const [saved, setSaved] = useState(null);      // allocation saved
   const [billsDone, setBillsDone] = useState(null); // bills generated
 
+  // Lot date filter: none = today's open lots (default), YYYY-MM-DD = that day.
+  const [dateF, setDateF] = useState('');
+  const lotsPath = dateF ? `/lots?date=${encodeURIComponent(dateF)}` : '/lots';
+
   const loadLots = useCallback(async () => {
     try {
-      const all = await get('/lots');
+      const all = await get(lotsPath);
       setLots(all);
-      if (!lotId && all.length) setLotId(all[0].id);
+      setLotId((cur) => (cur && all.some((l) => String(l.id) === String(cur)) ? cur : (all[0] ? all[0].id : null)));
       setErr('');
     } catch (e) { setErr(e.message); }
-  }, [lotId]);
+  }, [lotsPath]);
 
   const loadAuction = useCallback(async () => {
-    if (!lotId) return;
+    if (!lotId) { setAuction(null); return; }
     try {
       const auc = await post('/auctions', { lot_id: lotId });
       setAuction(auc);
@@ -46,7 +53,8 @@ export default function LiveAuctionScreen({ nav, params }) {
     } catch (e) { setAuction(null); setErr(e.message); }
   }, [lotId]);
 
-  useEffect(() => { loadLots(); get('/customers').then(setCustomers).catch((e) => setErr('Customers could not be loaded: ' + e.message)); }, []);
+  useEffect(() => { get('/customers').then(setCustomers).catch((e) => setErr('Customers could not be loaded: ' + e.message)); }, []);
+  useEffect(() => { loadLots(); }, [lotsPath]);
   useEffect(() => { loadAuction(); }, [loadAuction]);
 
   async function saveAllocation() {
@@ -60,7 +68,7 @@ export default function LiveAuctionScreen({ nav, params }) {
       // keep rate & customer for the next rapid allocation - minimum taps
       setQty('');
       setAuction(await get(`/auctions/${auction.id}`));
-      setLots(await get('/lots'));
+      setLots(await get(lotsPath));
       setSaved({
         customer: r.customer.name,
         quantity: Number(r.allocation.quantity),
@@ -91,7 +99,18 @@ export default function LiveAuctionScreen({ nav, params }) {
   const lotItems = (lots || []).filter((l) => Number(l.remaining_quantity) > 0 || String(l.id) === String(lotId));
 
   return (
-    <Screen title="Live Auction" nav={nav} onBack={nav.pop} error={err}>
+    <Screen
+      title="Live Auction"
+      nav={nav}
+      onBack={nav.pop}
+      error={err}
+      toolbar={(
+        <Toolbar trailing={<ClearFilters onPress={() => setDateF('')} />}>
+          <DateField value={dateF} onChange={setDateF} allLabel="Today's lots" />
+          <ToolCount shown={lotItems.length} total={(lots || []).length} />
+        </Toolbar>
+      )}
+    >
       {/* Select Lot - live searchable dropdown (type lot number / party / vehicle) */}
       <Card>
         <SearchSelect label="Select Lot" items={lotItems} selectedId={lotId ? Number(lotId) : null}
@@ -105,7 +124,7 @@ export default function LiveAuctionScreen({ nav, params }) {
           <Text style={s.t}>Lot Details (auto)</Text>
           <Row label="Vehicle" value={selectedLot.vehicle_number || '-'} />
           <Row label="Supplier / Party" value={selectedLot.party_name || '-'} />
-          <Row label="Quality" value={selectedLot.quality || '-'} />
+          <Row label="Quality Grade" value={selectedLot.quality || '-'} />
           <Row label="Total Quantity" value={`${Number(selectedLot.total_quantity)}`} />
           <Row label="Pre-Auction" value={`${Number(selectedLot.pre_auction_quantity)}`} />
           <Row label="REMAINING" value={`${Number(selectedLot.remaining_quantity)}`} strong />

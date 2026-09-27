@@ -1,11 +1,12 @@
 const { query } = require('../database/db');
 
-/** Audit trail query - by entity, entity_id, or recent. */
-async function listAudit({ entity, entity_id, limit } = {}) {
+/** Audit trail query - by entity, entity_id, date (YYYY-MM-DD), or recent. */
+async function listAudit({ entity, entity_id, date, limit } = {}) {
   const params = [];
   let where = 'WHERE 1=1';
   if (entity) { params.push(entity); where += ` AND a.entity = $${params.length}`; }
   if (entity_id) { params.push(entity_id); where += ` AND a.entity_id = $${params.length}`; }
+  if (date) { params.push(date); where += ` AND a.created_at::date = $${params.length}::date`; }
   params.push(Math.min(Number(limit) || 100, 500));
   const r = await query(
     `SELECT a.*, u.name AS changed_by_name

@@ -1,5 +1,9 @@
-const { Pool } = require('pg');
+const { Pool, types } = require('pg');
 const config = require('../config/env');
+
+// DATE columns stay 'YYYY-MM-DD' strings; converting them to JS Dates at
+// local midnight shifts them to the previous day once serialized as UTC.
+types.setTypeParser(1082, (v) => v);
 
 const pool = new Pool({
   host: config.db.host,
@@ -7,7 +11,8 @@ const pool = new Pool({
   database: config.db.database,
   user: config.db.user,
   password: config.db.password,
-  options: `-c search_path=${config.db.schema}`,
+  // Business timezone: current_date and timestamp::date follow the market's day.
+  options: `-c search_path=${config.db.schema} -c timezone=${config.db.timezone}`,
 });
 
 pool.on('error', (err) => {

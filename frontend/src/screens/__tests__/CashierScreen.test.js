@@ -11,6 +11,16 @@ const BILL = {
 
 jest.mock('../../api', () => ({
   get: jest.fn((p) => {
+    if (p === '/reference') {
+      return Promise.resolve({
+        payment_method: [
+          { code: 'cash', label: 'Cash', icon: '💵', selectable: true },
+          { code: 'upi', label: 'UPI', icon: '📱', selectable: true },
+          { code: 'bank', label: 'Bank', icon: '🏦', selectable: true },
+        ],
+        bill_status: [],
+      });
+    }
     if (p === '/cashier/summary') return Promise.resolve({ collected: 0, payment_count: 0, by_method: [], outstanding_bills: 1, outstanding_amount: 1000 });
     if (p === '/bills') return Promise.resolve([]);
     if (String(p).startsWith('/bills/')) return Promise.resolve(BILL);

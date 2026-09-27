@@ -1,49 +1,47 @@
-/** OUTSIDE TRADER inward: Supplier → Vehicle (from Vehicle Master) → Quality → Quantity → SAVE. */
+/** OUTSIDE TRADER inward: Supplier → Vehicle (existing or new) → Quality → Quantity → SAVE. */
 import React, { useState } from 'react';
 import { Text } from 'react-native';
 import { get, post } from '../api';
-import { Card, Field, Picker, Btn, Screen } from '../components/ui';
+import { Card, Field, Picker, Btn, Screen, Dropdown } from '../components/ui';
 import LotCreatedModal from '../components/LotCreatedModal';
-import VehiclePicker from '../components/VehiclePicker';
+import VehiclePicker, { useVehicleField } from '../components/VehiclePicker';
+import { useQualityGrades, gradeOptions } from '../qualityGrades';
 
 export default function OutsideTraderScreen({ nav }) {
+  const { grades } = useQualityGrades();
   const [suppliers, setSuppliers] = useState(null);
   const [supplierId, setSupplierId] = useState(null);
   const [supplierName, setSupplierName] = useState('');
-  const [vehicles, setVehicles] = useState([]);
-  const [vehicleId, setVehicleId] = useState(null);
-  const [quality, setQuality] = useState('');
+  const [quality, setQuality] = useState(null);
   const [quantity, setQuantity] = useState('');
   const [saving, setSaving] = useState(false);
   const [err, setErr] = useState('');
   const [created, setCreated] = useState(null);
+  const vehicle = useVehicleField({ onError: setErr });
 
   React.useEffect(() => {
     get('/parties?type=outside_trader').then(setSuppliers).catch((e) => setErr(e.message));
-    get('/vehicles').then(setVehicles).catch((e) => setErr(e.message));
   }, []);
-
-  // The selected vehicle auto-fills number, name, driver & phone (from the master).
-  const vehicle = vehicles.find((v) => String(v.id) === String(vehicleId)) || null;
 
   async function save() {
     setSaving(true); setErr('');
     try {
+      const v = vehicle.details();
       const r = await post('/inwards/outside-trader', {
         party_id: supplierId || undefined,
         party_name: supplierId ? undefined : supplierName,
-        vehicle_number: vehicle ? vehicle.vehicle_number : null,
-        vehicle_name: vehicle ? vehicle.vehicle_name : null,
-        driver_name: vehicle ? vehicle.driver_name : null,
-        driver_phone: vehicle ? vehicle.driver_phone : null,
-        quality, quantity: Number(quantity),
+        ...v,
+        quality_grade_id: quality || undefined, quantity: Number(quantity),
       });
-      setCreated({ lotId: r.lot.id, lotNumber: r.lot.lot_number, boxes: r.lot.total_quantity, amount: null });
+      setCreated({
+        lotId: r.lot.id, lotNumber: r.lot.lot_number, boxes: r.lot.total_quantity, amount: null,
+        vehicleNumber: v.vehicle_number, driverName: v.driver_name,
+      });
     } catch (e) { setErr(e.message); }
     finally { setSaving(false); }
   }
 
-  const valid = (supplierId || supplierName.trim()) && vehicleId && Number(quantity) > 0;
+  const valid = (supplierId || supplierName.trim()) && vehicle.valid && Number(quantity) > 0;
 
   return (
     <Screen title="Outside Trader Inward" nav={nav} onBack={nav.pop} error={err}>
@@ -56,12 +54,11 @@ export default function OutsideTraderScreen({ nav }) {
       </Card>
       <Card>
         <Text style={s.t}>This arrival's vehicle</Text>
-        <VehiclePicker vehicles={vehicles} selectedId={vehicleId} onSelect={setVehicleId}
-          onAddNew={() => nav.push('vehicleMaster')} />
-        <Text style={s.hint}>Vehicle & driver details come from the Vehicle Master — select the vehicle and they fill in automatically.</Text>
+        <VehiclePicker {...vehicle.fieldProps} />
+        <Text style={s.hint}>Pick a saved vehicle to fill in its driver automatically, or type a new vehicle number.</Text>
       </Card>
       <Card>
-        <Field label="Quality" value={quality} onChangeText={setQuality} placeholder="e.g. B Grade" />
+        <Dropdown label="Quality Grade" options={gradeOptions(grades)} value={quality} onChange={setQuality} />
         <Field label="Quantity (boxes)" value={quantity} onChangeText={setQuantity} keyboard="numeric" placeholder="e.g. 50" />
         <Btn title={saving ? 'Saving…' : 'SAVE Inward'} onPress={save} disabled={!valid || saving} kind="accent" />
       </Card>
@@ -74,8 +71,8 @@ export default function OutsideTraderScreen({ nav }) {
         boxes={created?.boxes}
         amount={null}
         extraRows={[
-          ['Vehicle', vehicle?.vehicle_number || '-'],
-          ['Driver', vehicle?.driver_name || '-'],
+          ['Vehicle', created?.vehicleNumber || '-'],
+          ['Driver', created?.driverName || '-'],
         ]}
         actions={[
           { title: 'Open Auction', onPress: () => nav.replace('liveAuction', { lotId: created.lotId }) },

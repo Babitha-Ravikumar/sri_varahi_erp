@@ -7,6 +7,7 @@
  */
 const crypto = require('crypto');
 const { query } = require('../database/db');
+const roleMaster = require('./role.service');
 
 // ---------- Password hashing (scrypt: N=16384, r=8, p=1, 64-byte key) ----------
 const SCRYPT = { N: 16384, r: 8, p: 1, keyLen: 64 };
@@ -59,34 +60,67 @@ function fail(status, message) {
   throw err;
 }
 
+// ---------- Roles & module permissions ----------
+/** Roles a Super Admin can assign: the active rows of the Role master. */
+async function assignableRoles() {
+  const rows = await roleMaster.list();
+  return rows.map((r) => ({ id: r.id, code: r.code, role_name: r.role_name }));
+}
+
+/** Role name from the Role master, for any column list selecting from users. */
+const ROLE_NAME_SQL = '(SELECT role_name FROM roles WHERE roles.id = users.role_id) AS role_name';
+
+/** Application modules that can be enabled/disabled per user.
+ *  The dashboard is always available; user management is Super Admin only. */
+const MODULE_KEYS = [
+  'sourceSelect', 'lots', 'liveAuction', 'billing', 'cashier',
+  'nightArrival', 'vehicleMaster', 'corrections', 'audit',
+];
+
+const DEFAULT_MODULES = {
+  super_admin: MODULE_KEYS,
+  admin: MODULE_KEYS,
+  staff: ['sourceSelect', 'lots', 'liveAuction', 'billing', 'cashier', 'nightArrival'],
+};
+
+/** Effective modules: the user's explicit list, or the role's defaults. */
+function effectiveModules(user) {
+  const list = Array.isArray(user.modules) ? user.modules : (DEFAULT_MODULES[user.role] || []);
+  const mods = list.filter((m) => MODULE_KEYS.includes(m));
+  if (user.role === 'super_admin') mods.push('userCreation');
+  if (user.role === 'super_admin' || user.role === 'admin') mods.push('qualityGrades');
+  return mods;
+}
+
+function cleanModules(modules) {
+  if (modules === undefined) return undefined;
+  if (!Array.isArray(modules)) fail(400, 'modules must be a list of module keys.');
+  const bad = modules.filter((m) => !MODULE_KEYS.includes(m));
+  if (bad.length) fail(400, `Unknown module(s): ${bad.join(', ')}`);
+  return Array.from(new Set(modules));
+}
+
+const INACTIVE_MESSAGE = 'This user is inactive. Please contact the administrator.';
+
 // ---------- Login ----------
 /**
- * Login with role, username and password.
- * `role` is the role chosen on the login screen ('super_admin' | 'admin')
- * and must match the stored user's role.
+ * Login with username and password. The role comes from the stored account.
+ * Inactive users get a clear message once their credentials are verified.
  */
-async function login({ role, username, password }) {
-  const wantedRole = role === 'super_admin' ? 'super_admin'
-    : role === 'admin' ? 'admin' : null;
-  if (!wantedRole) fail(400, 'Invalid role selected.');
+async function login({ username, password }) {
   if (!username || !password) fail(400, 'Username and password are required.');
 
   const r = await query(
-    `SELECT id, name, username, role, password_hash, active, must_change_password
+    `SELECT id, name, username, role, ${ROLE_NAME_SQL}, password_hash, active, must_change_password, modules
        FROM users WHERE lower(username) = lower($1)`,
     [String(username).trim()]
   );
   const user = r.rows[0];
-  // Same error for unknown user / wrong password / wrong role: no enumeration.
-  if (!user || !user.active || !user.password_hash) {
-    fail(401, 'Invalid username, password or role.');
+  // Same error for unknown user / wrong password: no enumeration.
+  if (!user || !user.password_hash || !verifyPassword(password, user.password_hash)) {
+    fail(401, 'Invalid username or password.');
   }
-  if (user.role !== wantedRole) {
-    fail(401, 'Invalid username, password or role.');
-  }
-  if (!verifyPassword(password, user.password_hash)) {
-    fail(401, 'Invalid username, password or role.');
-  }
+  if (!user.active) fail(403, INACTIVE_MESSAGE);
 
   await query('UPDATE users SET last_login_at = now() WHERE id = $1', [user.id]);
 
@@ -96,19 +130,30 @@ async function login({ role, username, password }) {
       name: user.name,
       username: user.username,
       role: user.role,
+      role_name: user.role_name,
+      modules: effectiveModules(user),
     },
     must_change_password: user.must_change_password,
   };
 }
 
 // ---------- User creation (Super Admin only) ----------
-async function createUser(actor, { username, name, phone, email }) {
+async function createUser(actor, { username, name, phone, email, role_id, role, modules }) {
   if (!actor || actor.role !== 'super_admin') fail(403, 'Only the Super Admin can create users.');
 
   username = String(username || '').trim();
   name = String(name || '').trim();
   phone = phone ? String(phone).trim() : null;
   email = email ? String(email).trim().toLowerCase() : null;
+  const hasRoleId = role_id !== undefined && role_id !== null && role_id !== '';
+  if (hasRoleId && !/^\d+$/.test(String(role_id))) fail(400, 'Invalid role.');
+  const picked = await roleMaster.findActive({ id: hasRoleId ? role_id : null, code: role || 'admin' });
+  if (!picked) {
+    const roles = await assignableRoles();
+    fail(400, `Role must be one of: ${roles.map((r) => r.role_name).join(', ')}.`);
+  }
+  role = picked.code;
+  modules = cleanModules(modules);
 
   if (!USERNAME_RE.test(username)) {
     fail(400, 'Username must be 3-40 characters (letters, numbers, dot, underscore, hyphen).');
@@ -136,22 +181,48 @@ async function createUser(actor, { username, name, phone, email }) {
   }
 
   const r = await query(
-    `INSERT INTO users (name, username, role, phone, email, password_hash, must_change_password)
-     VALUES ($1, $2, 'admin', $3, $4, $5, true)
-     RETURNING id, name, username, role, phone, email, must_change_password, created_at`,
-    [name, username, phone, email, hashPassword(DEFAULT_ADMIN_PASSWORD)]
+    `INSERT INTO users (name, username, role, phone, email, password_hash, must_change_password, modules)
+     VALUES ($1, $2, $3, $4, $5, $6, true, $7)
+     RETURNING id, name, username, role, ${ROLE_NAME_SQL}, phone, email, active, must_change_password, modules, created_at`,
+    [name, username, role, phone, email, hashPassword(DEFAULT_ADMIN_PASSWORD),
+     modules === undefined ? null : JSON.stringify(modules)]
   );
-  return r.rows[0];
+  const user = r.rows[0];
+  return { ...user, modules: effectiveModules(user) };
 }
 
 async function listUsers(actor) {
   if (!actor || actor.role !== 'super_admin') fail(403, 'Only the Super Admin can list users.');
   const r = await query(
-    `SELECT id, name, username, role, phone, email, active, must_change_password,
-            last_login_at, created_at
-       FROM users ORDER BY role, id`
+    `SELECT id, name, username, role, ${ROLE_NAME_SQL}, phone, email, active, must_change_password,
+            modules, last_login_at, created_at
+       FROM users WHERE username IS NOT NULL ORDER BY role, id`
   );
-  return r.rows;
+  return r.rows.map((u) => ({ ...u, modules: effectiveModules(u) }));
+}
+
+/** Super Admin: change a user's Active status and/or module permissions. */
+async function updateUser(actor, userId, { active, modules }) {
+  if (!actor || actor.role !== 'super_admin') fail(403, 'Only the Super Admin can manage users.');
+  const id = Number(userId);
+  if (!Number.isInteger(id)) fail(400, 'Invalid user id.');
+  if (active !== undefined && typeof active !== 'boolean') fail(400, 'active must be true or false.');
+  if (active === false && id === Number(actor.id)) fail(400, 'You cannot deactivate your own account.');
+  modules = cleanModules(modules);
+
+  const r = await query(
+    `UPDATE users SET
+       active  = COALESCE($2, active),
+       modules = CASE WHEN $3::boolean THEN $4::jsonb ELSE modules END
+     WHERE id = $1 AND username IS NOT NULL
+     RETURNING id, name, username, role, ${ROLE_NAME_SQL}, phone, email, active, must_change_password,
+               modules, last_login_at, created_at`,
+    [id, active === undefined ? null : active, modules !== undefined,
+     modules === undefined ? null : JSON.stringify(modules)]
+  );
+  if (!r.rows[0]) fail(404, 'User not found.');
+  const user = r.rows[0];
+  return { ...user, modules: effectiveModules(user) };
 }
 
 // ---------- Password change (forced first-login reset) ----------
@@ -306,9 +377,13 @@ module.exports = {
   verifyPassword,
   validatePassword,
   DEFAULT_ADMIN_PASSWORD,
+  MODULE_KEYS,
+  assignableRoles,
+  effectiveModules,
   login,
   createUser,
   listUsers,
+  updateUser,
   changePassword,
   requestResetOtp,
   verifyResetOtp,

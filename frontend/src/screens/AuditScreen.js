@@ -1,24 +1,38 @@
 /**
  * Audit / History - full trail of controlled actions.
- * FILTERS: free search (entity #id / action / reason / user), date,
- * action type and user - all combine and update the list live.
+ * FILTERS: free search, date picker, action type, user, newest/oldest sort.
  */
 import React, { useMemo, useState } from 'react';
-import { Text, View, StyleSheet } from 'react-native';
+import { Text, StyleSheet } from 'react-native';
 import { get } from '../api';
-import { Card, Screen, Row, Field, Chip, SectionTitle, C, Empty } from '../components/ui';
+import {
+  Card, Screen, Row, Chip, C, Empty,
+  Toolbar, ToolInput, DateField, SortToggle, ToolCount, ClearFilters,
+} from '../components/ui';
 
 export default function AuditScreen({ nav }) {
   const [rows, setRows] = useState(null);
   const [err, setErr] = useState('');
 
-  // filters
   const [q, setQ] = useState('');
   const [dateF, setDateF] = useState('');
   const [actionF, setActionF] = useState('all');
   const [userF, setUserF] = useState('all');
+  const [sort, setSort] = useState('newest');
 
-  React.useEffect(() => { get('/audit?limit=200').then(setRows).catch((e) => setErr(e.message)); }, []);
+  function clearFilters() {
+    setQ('');
+    setDateF('');
+    setActionF('all');
+    setUserF('all');
+    setSort('newest');
+  }
+
+  // The selected date is filtered by the server, so older days are not cut off by the limit.
+  React.useEffect(() => {
+    const q = dateF ? `&date=${encodeURIComponent(dateF)}` : '';
+    get(`/audit?limit=200${q}`).then((r) => { setRows(r); setErr(''); }).catch((e) => setErr(e.message));
+  }, [dateF]);
 
   const actions = useMemo(
     () => ['all', ...Array.from(new Set((rows || []).map((r) => r.action))).sort()],
@@ -33,42 +47,40 @@ export default function AuditScreen({ nav }) {
   const filtered = (rows || []).filter((a) => {
     if (actionF !== 'all' && a.action !== actionF) return false;
     if (userF !== 'all' && a.changed_by_name !== userF) return false;
-    if (dateF && (a.created_at || '').slice(0, 10) !== dateF.trim()) return false;
     if (text) {
       const hay = [`${a.entity} #${a.entity_id}`, a.action, a.reason, a.changed_by_name]
         .filter(Boolean).join(' ').toLowerCase();
       if (!hay.includes(text)) return false;
     }
     return true;
+  }).sort((a, b) => {
+    const da = new Date(a.created_at || 0), db = new Date(b.created_at || 0);
+    return sort === 'newest' ? db - da : da - db;
   });
 
   return (
-    <Screen title="Audit / History" nav={nav} onBack={nav.pop} error={err}>
-      <Card>
-        <SectionTitle>Filter History</SectionTitle>
-        <Field label="Search (record / action / reason / user)" value={q} onChangeText={setQ} placeholder="e.g. bill #6 / payment" />
-        <Field label="Date (YYYY-MM-DD)" value={dateF} onChangeText={setDateF} placeholder="e.g. 2026-09-27" />
-        <Text style={s.filterLabel}>Action type</Text>
-        <View style={s.chipRow}>
+    <Screen
+      title="Audit / History"
+      nav={nav}
+      onBack={nav.pop}
+      error={err}
+      toolbar={(
+        <Toolbar trailing={<ClearFilters onPress={clearFilters} />}>
+          <ToolInput value={q} onChangeText={setQ} placeholder="Search history" />
+          <DateField value={dateF} onChange={setDateF} />
           {actions.map((a) => (
-            <Chip key={a} label={a === 'all' ? 'All' : a.replace(/_/g, ' ')}
+            <Chip key={a} label={a === 'all' ? 'All actions' : a.replace(/_/g, ' ')}
               active={actionF === a} onPress={() => setActionF(a)} />
           ))}
-        </View>
-        {users.length > 2 && (
-          <>
-            <Text style={s.filterLabel}>User</Text>
-            <View style={s.chipRow}>
-              {users.map((u) => (
-                <Chip key={u} label={u === 'all' ? 'All' : u}
-                  active={userF === u} onPress={() => setUserF(u)} />
-              ))}
-            </View>
-          </>
-        )}
-        <Text style={s.filterInfo}>{filtered.length} of {(rows || []).length} entries shown</Text>
-      </Card>
-
+          {users.length > 2 && users.map((u) => (
+            <Chip key={u} label={u === 'all' ? 'All users' : u}
+              active={userF === u} onPress={() => setUserF(u)} />
+          ))}
+          <SortToggle value={sort} onChange={setSort} />
+          <ToolCount shown={filtered.length} total={(rows || []).length} />
+        </Toolbar>
+      )}
+    >
       {filtered.map((a) => (
         <Card key={a.id}>
           <Row label={`${a.entity} #${a.entity_id}`} value={a.action} strong />
@@ -90,7 +102,4 @@ export default function AuditScreen({ nav }) {
 
 const s = StyleSheet.create({
   diff: { fontSize: 11, color: C.muted, marginTop: 6, backgroundColor: '#fafafa', padding: 6, borderRadius: 4 },
-  chipRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 2 },
-  filterLabel: { fontSize: 13, color: C.text, fontWeight: '600', marginTop: 10, marginBottom: 6 },
-  filterInfo: { fontSize: 12, color: C.muted, marginTop: 10 },
 });

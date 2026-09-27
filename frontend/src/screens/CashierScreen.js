@@ -10,8 +10,9 @@
 import React, { useCallback, useState } from 'react';
 import { View, Text, Alert, Linking } from 'react-native';
 import { get, post } from '../api';
-import { Card, Field, Btn, Screen, Row, C, Badge, Chip, SectionTitle } from '../components/ui';
+import { Card, Field, Btn, Screen, Row, C, Badge, Chip, SectionTitle, Toolbar, ToolInput, DateField, SortToggle, ToolCount, ClearFilters } from '../components/ui';
 import SuccessModal from '../components/SuccessModal';
+import { useReference, refLabel } from '../reference';
 
 /** Market's UPI ID (VPA) shown in the payment apps. Change here when needed. */
 const UPI_VPA = 'srivarahimarket@upi';
@@ -29,6 +30,9 @@ function upiIntentUrl({ vpa, name, amount, note }) {
 }
 
 export default function CashierScreen({ nav, params }) {
+  const paymentMethods = useReference('payment_method');
+  const billStatuses = useReference('bill_status');
+  const methodLabel = (code) => refLabel(paymentMethods, code).toUpperCase();
   const [summary, setSummary] = useState(null);
   const [bills, setBills] = useState(null);
   const [err, setErr] = useState('');
@@ -40,6 +44,14 @@ export default function CashierScreen({ nav, params }) {
   const [dateF, setDateF] = useState('');
   const [statusF, setStatusF] = useState('due'); // due = unpaid + part_paid
   const [q, setQ] = useState('');
+  const [sort, setSort] = useState('newest');
+
+  function clearFilters() {
+    setDateF('');
+    setStatusF('all');
+    setQ('');
+    setSort('newest');
+  }
 
   const load = useCallback(async () => {
     try {
@@ -72,9 +84,9 @@ export default function CashierScreen({ nav, params }) {
       bill: bill.bill_number,
       customer: bill.customer_name,
       amount: Number(amount),
-      method: method.toUpperCase(),
+      method: methodLabel(method),
       reference: reference || null,
-      billStatus: String(r.bill_status).replace(/_/g, ' '),
+      billStatus: refLabel(billStatuses, r.bill_status),
       balance: Number(r.balance),
     });
     resetEntry();
@@ -137,30 +149,37 @@ export default function CashierScreen({ nav, params }) {
       && !String(b.lot_number || '').toLowerCase().includes(text)
       && !String(b.lot_number || '').split('-').pop().startsWith(text)) return false;
     return true;
+  }).sort((a, b) => {
+    const da = new Date(a.created_at || 0), db = new Date(b.created_at || 0);
+    return sort === 'newest' ? db - da : da - db;
   });
 
   return (
-    <Screen title="Cashier" nav={nav} onBack={nav.pop} error={err}>
-      <Card>
-        <SectionTitle>Filter</SectionTitle>
-        <Field label="Date (YYYY-MM-DD, blank = all dates)" value={dateF} onChangeText={setDateF} placeholder="e.g. 2026-09-27" />
-        <Field label="Search bill / customer / lot" value={q} onChangeText={setQ} placeholder="e.g. B-2026… / Ramesh / 001" />
-        <View style={s.chipRow}>
+    <Screen
+      title="Cashier"
+      nav={nav}
+      onBack={nav.pop}
+      error={err}
+      toolbar={(
+        <Toolbar trailing={<ClearFilters onPress={clearFilters} />}>
+          <ToolInput value={q} onChangeText={setQ} placeholder="Bill / customer / lot" />
+          <DateField value={dateF} onChange={setDateF} />
           <Chip label="Due" active={statusF === 'due'} onPress={() => setStatusF('due')} />
-          <Chip label="Unpaid" active={statusF === 'unpaid'} onPress={() => setStatusF('unpaid')} />
-          <Chip label="Partially Paid" active={statusF === 'part_paid'} onPress={() => setStatusF('part_paid')} />
-          <Chip label="Paid" active={statusF === 'paid'} onPress={() => setStatusF('paid')} />
+          {billStatuses.filter((st) => st.selectable).map((st) => (
+            <Chip key={st.code} label={st.label} active={statusF === st.code} onPress={() => setStatusF(st.code)} />
+          ))}
           <Chip label="All" active={statusF === 'all'} onPress={() => setStatusF('all')} />
-        </View>
-        <Text style={s.filterInfo}>{filteredBills.length} of {(bills || []).length} bills shown</Text>
-      </Card>
-
+          <SortToggle value={sort} onChange={setSort} />
+          <ToolCount shown={filteredBills.length} total={(bills || []).length} />
+        </Toolbar>
+      )}
+    >
       {summary && (
         <Card>
           <Row label={dateF.trim() ? `Collected (${dateF.trim()})` : 'Collected (all dates)'} value={`₹${summary.collected}`} strong />
           <Row label="Payments" value={String(summary.payment_count)} />
           {summary.by_method.map((m) => (
-            <Row key={m.method} label={m.method.toUpperCase()} value={`₹${Number(m.amount)} (${m.count})`} />
+            <Row key={m.method} label={methodLabel(m.method)} value={`₹${Number(m.amount)} (${m.count})`} />
           ))}
           <Row label="Outstanding" value={`${summary.outstanding_bills} bills · ₹${summary.outstanding_amount}`} />
         </Card>
@@ -178,10 +197,10 @@ export default function CashierScreen({ nav, params }) {
           <Field label="Amount received" value={amount} onChangeText={setAmount} keyboard="numeric"
             placeholder={String(bill.balance)} />
           <View style={s.methodRow}>
-            {['cash', 'upi', 'bank'].map((m) => (
-              <Btn key={m} title={{ cash: '💵 CASH', upi: '📱 UPI', bank: '🏦 BANK' }[m]}
-                kind={method === m ? 'accent' : 'secondary'}
-                onPress={() => setMethod(m)} style={s.methodBtn} />
+            {paymentMethods.filter((pm) => pm.selectable).map((pm) => (
+              <Btn key={pm.code} title={`${pm.icon ? `${pm.icon} ` : ''}${pm.label.toUpperCase()}`}
+                kind={method === pm.code ? 'accent' : 'secondary'}
+                onPress={() => setMethod(pm.code)} style={s.methodBtn} />
             ))}
           </View>
 
@@ -208,7 +227,7 @@ export default function CashierScreen({ nav, params }) {
           <View style={s.head}>
             <Text style={s.billNo}>{b.bill_number}</Text>
             <Badge tone={b.status === 'paid' ? 'success' : b.status === 'part_paid' ? 'warning' : 'danger'}>
-              {b.status.replace(/_/g, ' ')}
+              {refLabel(billStatuses, b.status)}
             </Badge>
           </View>
           <Row label="Customer" value={b.customer_name} />
@@ -244,8 +263,6 @@ const s = {
   t: { fontWeight: '700', marginBottom: 4, fontSize: 15, color: C.text },
   head: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6, gap: 8 },
   billNo: { fontSize: 15, fontWeight: '800', color: C.text, flexShrink: 1 },
-  chipRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 4 },
-  filterInfo: { fontSize: 12, color: C.muted, marginTop: 8 },
   methodRow: { flexDirection: 'row', gap: 8, marginTop: 4 },
   methodBtn: { flex: 1, marginTop: 0, paddingHorizontal: 4 },
   bankBox: {

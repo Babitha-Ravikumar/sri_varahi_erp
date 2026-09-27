@@ -25,6 +25,15 @@ const listUsers = async (req, res, next) => {
   try { res.json(await auth.listUsers(req.user)); } catch (e) { next(e); }
 };
 
+/** Master list of assignable roles (so the app never hardcodes them). */
+const listRoles = async (_req, res, next) => {
+  try { res.json(await auth.assignableRoles()); } catch (e) { next(e); }
+};
+
+const updateUser = async (req, res, next) => {
+  try { res.json(await auth.updateUser(req.user, req.params.id, req.body || {})); } catch (e) { next(e); }
+};
+
 const requestResetOtp = async (req, res, next) => {
   try { res.json(await auth.requestResetOtp(req.body || {})); } catch (e) { next(e); }
 };
@@ -33,4 +42,4 @@ const verifyResetOtp = async (req, res, next) => {
   try { res.json(await auth.verifyResetOtp(req.body || {})); } catch (e) { next(e); }
 };
 
-module.exports = { login, changePassword, createUser, listUsers, requestResetOtp, verifyResetOtp };
+module.exports = { login, changePassword, createUser, listUsers, listRoles, updateUser, requestResetOtp, verifyResetOtp };

@@ -4,6 +4,9 @@ const inward = require('../controllers/inward.controller');
 const auction = require('../controllers/auction.controller');
 const billing = require('../controllers/billing.controller');
 const authController = require('../controllers/auth.controller');
+const dashboard = require('../services/dashboard.service');
+const reference = require('../services/reference.service');
+const qualityGrades = require('../services/qualityGrade.service');
 const { requireUser, requireRole } = require('../middleware/auth');
 
 const router = Router();
@@ -18,7 +21,9 @@ router.post('/auth/change-password', authController.changePassword);
 
 // User management (Super Admin only)
 router.get('/auth/users', requireRole('super_admin'), authController.listUsers);
+router.get('/auth/roles', requireRole('super_admin'), authController.listRoles);
 router.post('/auth/users', requireRole('super_admin'), authController.createUser);
+router.patch('/auth/users/:id', requireRole('super_admin'), authController.updateUser);
 
 // Forgot password (public, OTP-protected)
 router.post('/auth/forgot-password/otp', authController.requestResetOtp);
@@ -46,7 +51,7 @@ router.post('/inwards/night-arrival', requireUser, inward.createNightArrival);
 router.get('/inwards', requireUser, inward.listInwards);
 router.get('/inwards/consolidated', requireUser, inward.consolidated);
 // Night arrival: fix morning final rate on the SAME inward (no duplicate)
-router.post('/inwards/:id/final-rate', requireRole('supervisor', 'admin'), inward.fixFinalRate);
+router.post('/inwards/:id/final-rate', requireRole('supervisor', 'admin', 'super_admin'), inward.fixFinalRate);
 
 // ---------- Lots & Lot Cards ----------
 router.get('/lots', requireUser, inward.listLots);
@@ -78,11 +83,35 @@ router.post('/bills/:id/payments', requireUser, billing.recordPayment);
 router.get('/cashier/summary', requireUser, billing.cashierSummary);
 
 // ---------- Post-Auction Corrections (authorized roles only) ----------
-router.patch('/allocations/:id', requireRole('supervisor', 'admin'), billing.updateAllocation);
-router.post('/allocations/:id/transfer', requireRole('supervisor', 'admin'), billing.transferQuantity);
-router.post('/allocations/:id/split', requireRole('supervisor', 'admin'), billing.splitAllocation);
+router.patch('/allocations/:id', requireRole('supervisor', 'admin', 'super_admin'), billing.updateAllocation);
+router.post('/allocations/:id/transfer', requireRole('supervisor', 'admin', 'super_admin'), billing.transferQuantity);
+router.post('/allocations/:id/split', requireRole('supervisor', 'admin', 'super_admin'), billing.splitAllocation);
 
 // ---------- Audit Trail ----------
 router.get('/audit', requireUser, billing.listAudit);
+
+// ---------- Quality Grade master (read: any user; manage: Admin / Super Admin) ----------
+router.get('/quality-grades', requireUser, async (req, res, next) => {
+  try { res.json(await qualityGrades.list(req.query)); } catch (e) { next(e); }
+});
+router.post('/quality-grades', requireRole('admin', 'super_admin'), async (req, res, next) => {
+  try { res.status(201).json(await qualityGrades.create(req.body || {})); } catch (e) { next(e); }
+});
+router.put('/quality-grades/:id', requireRole('admin', 'super_admin'), async (req, res, next) => {
+  try { res.json(await qualityGrades.update(req.params.id, req.body || {})); } catch (e) { next(e); }
+});
+
+// ---------- Reference data (purchase sources, payment methods, bill statuses) ----------
+router.get('/reference', requireUser, async (_req, res, next) => {
+  try { res.json(await reference.all()); } catch (e) { next(e); }
+});
+
+// ---------- Dashboard ----------
+router.get('/dashboard/summary', requireUser, async (req, res, next) => {
+  try { res.json(await dashboard.summary(req.query)); } catch (e) { next(e); }
+});
+router.get('/dashboard/top-customers', requireUser, async (req, res, next) => {
+  try { res.json(await dashboard.topCustomers(req.query)); } catch (e) { next(e); }
+});
 
 module.exports = router;

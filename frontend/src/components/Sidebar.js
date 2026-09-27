@@ -7,36 +7,23 @@
 import React from 'react';
 import { View, Text, TouchableOpacity, Modal, ScrollView, StyleSheet } from 'react-native';
 import { C } from './ui';
-import { getSession, clearSession } from '../api';
-
-/** Main modules. `screens` maps each in-app screen to its module for highlighting. */
-const MODULES = [
-  { key: 'dashboard', icon: '🏠', title: 'Dashboard', screens: ['dashboard', 'drillDown'] },
-  { key: 'sourceSelect', icon: '＋', title: 'New Inward', screens: ['sourceSelect', 'localFarmer', 'localTrader', 'outsideTrader'] },
-  { key: 'lots', icon: '📦', title: 'Lots', screens: ['lotDetail'] },
-  { key: 'liveAuction', icon: '🔨', title: 'Live Auction', screens: ['liveAuction'] },
-  { key: 'billing', icon: '🧾', title: 'Billing', screens: ['billing'] },
-  { key: 'cashier', icon: '💰', title: 'Cashier', screens: ['cashier'] },
-  { key: 'nightArrival', icon: '🌙', title: 'Night Arrivals', screens: ['nightArrival'] },
-  { key: 'vehicleMaster', icon: '🚚', title: 'Vehicle Master', screens: ['vehicleMaster'] },
-  { key: 'corrections', icon: '✏️', title: 'Corrections', screens: ['corrections'] },
-  { key: 'audit', icon: '📋', title: 'Audit / History', screens: ['audit'] },
-];
+import { getSession, clearSession, canAccess } from '../api';
+import { MODULES, moduleOfScreen } from '../modules';
 
 /** Returns the module key active for a given screen name (null = none). */
-export function activeModuleOf(screenName) {
-  const m = MODULES.find((mod) => mod.screens.includes(screenName));
-  return m ? m.key : null;
+export const activeModuleOf = moduleOfScreen;
+
+export default function Sidebar({ visible, ...props }) {
+  if (!visible) return null;
+  return <SidebarPanel {...props} />;
 }
 
-export default function Sidebar({ visible, onClose, activeScreen, nav }) {
-  if (!visible) return null;
+function SidebarPanel({ onClose, activeScreen, nav }) {
   const session = getSession();
   const active = activeModuleOf(activeScreen);
 
-  const modules = session && session.role === 'super_admin'
-    ? [...MODULES, { key: 'userCreation', icon: '👥', title: 'User Creation', screens: ['userCreation'] }]
-    : MODULES;
+  // Only the modules enabled for the signed-in user are listed.
+  const modules = MODULES.filter((m) => canAccess(m.key));
 
   function go(key) {
     onClose();
@@ -53,7 +40,7 @@ export default function Sidebar({ visible, onClose, activeScreen, nav }) {
         <View style={s.panel} testID="app-sidebar">
           <View style={s.head}>
             <Text style={s.brand}>SRI VARAHI ERP</Text>
-            {session ? <Text style={s.user}>{session.name} · {String(session.role || '').replace(/_/g, ' ')}</Text> : null}
+            {session ? <Text style={s.user}>{session.name} · {session.role_name || session.role}</Text> : null}
           </View>
 
           <ScrollView style={s.list} contentContainerStyle={{ paddingBottom: 8 }}>

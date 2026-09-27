@@ -7,13 +7,15 @@ import React, { useCallback, useEffect, useState } from 'react';
 import { Text, TouchableOpacity, StyleSheet } from 'react-native';
 import { get } from '../api';
 import { Card, Row, Screen, C, Loading, Empty, Badge, lotSeq } from '../components/ui';
+import { useReference, refLabel } from '../reference';
 
 export default function DrillDownScreen({ nav, params }) {
   const { type, key } = params;
+  const sources = useReference('purchase_source');
   const [rows, setRows] = useState(null);
   const [err, setErr] = useState('');
 
-  const title = type === 'vehicle' ? `Vehicle ${key}` : `${String(key || '').replace(/_/g, ' ')} — source details`;
+  const title = type === 'vehicle' ? `Vehicle ${key}` : `${refLabel(sources, key)} — source details`;
 
   const load = useCallback(async () => {
     try {
@@ -49,8 +51,8 @@ export default function DrillDownScreen({ nav, params }) {
                 <Row label="Party" value={i.party_name || '-'} />
                 <Row label="Vehicle" value={i.vehicle_number || '-'} />
                 <Row label="Driver" value={i.driver_name || '-'} />
-                {type === 'vehicle' && <Row label="Source" value={String(i.purchase_source || '-').replace(/_/g, ' ')} />}
-                {type === 'source' && <Row label="Quality" value={i.quality || '-'} />}
+                {type === 'vehicle' && <Row label="Source" value={i.purchase_source ? refLabel(sources, i.purchase_source) : '-'} />}
+                {type === 'source' && <Row label="Quality Grade" value={i.quality || '-'} />}
                 {i.purchase_rate != null && <Row label="Purchase rate" value={`₹${Number(i.purchase_rate)}`} />}
                 {i.final_rate != null && <Row label="Final rate" value={`₹${Number(i.final_rate)}`} />}
                 <Text style={s.tapHint}>Tap to open lot ›</Text>

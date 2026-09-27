@@ -6,20 +6,21 @@
 import React, { useCallback, useState } from 'react';
 import { Text, View, Alert } from 'react-native';
 import { get, post } from '../api';
-import { Card, Field, Btn, Screen, Row, C, lotSeq } from '../components/ui';
+import { Card, Field, Btn, Screen, Row, C, lotSeq, Dropdown } from '../components/ui';
 import LotCreatedModal from '../components/LotCreatedModal';
-import VehiclePicker from '../components/VehiclePicker';
+import VehiclePicker, { useVehicleField } from '../components/VehiclePicker';
+import { useQualityGrades, gradeOptions } from '../qualityGrades';
 
 export default function NightArrivalScreen({ nav }) {
+  const { grades } = useQualityGrades();
   const [list, setList] = useState(null);
   const [err, setErr] = useState('');
   const [showForm, setShowForm] = useState(false);
 
   // form
   const [partyName, setPartyName] = useState('');
-  const [vehicles, setVehicles] = useState([]);
-  const [vehicleId, setVehicleId] = useState(null);
-  const [quality, setQuality] = useState('');
+  const vehicle = useVehicleField({ onError: setErr });
+  const [quality, setQuality] = useState(null);
   const [quantity, setQuantity] = useState('');
   const [sellingPrice, setSellingPrice] = useState('');
   const [saving, setSaving] = useState(false);
@@ -34,29 +35,22 @@ export default function NightArrivalScreen({ nav }) {
   }, []);
   React.useEffect(() => { load(); }, [load]);
 
-  // Vehicle Master list for the searchable Vehicle dropdown.
-  React.useEffect(() => {
-    get('/vehicles').then(setVehicles).catch((e) => setErr(e.message));
-  }, []);
-
-  // The selected vehicle auto-fills its number & driver (from the master).
-  const selectedVehicle = vehicles.find((v) => String(v.id) === String(vehicleId)) || null;
-
   async function save() {
     setSaving(true); setErr('');
     try {
+      const v = vehicle.details();
       const r = await post('/inwards/night-arrival', {
         party_name: partyName,
-        vehicle_number: selectedVehicle ? selectedVehicle.vehicle_number : null,
-        driver_name: selectedVehicle ? selectedVehicle.driver_name : null,
-        quality, quantity: Number(quantity), selling_price: Number(sellingPrice),
+        vehicle_number: v.vehicle_number,
+        driver_name: v.driver_name,
+        quality_grade_id: quality || undefined, quantity: Number(quantity), selling_price: Number(sellingPrice),
       });
       setCreated({
         lotId: r.lot.id, lotNumber: r.lot.lot_number, boxes: r.lot.total_quantity,
         amount: Number(sellingPrice) * Number(quantity),
       });
       setShowForm(false);
-      setPartyName(''); setVehicleId(null); setQuality(''); setQuantity(''); setSellingPrice('');
+      setPartyName(''); vehicle.reset(); setQuality(null); setQuantity(''); setSellingPrice('');
       load();
     } catch (e) { setErr(e.message); }
     finally { setSaving(false); }
@@ -68,7 +62,7 @@ export default function NightArrivalScreen({ nav }) {
     nav.push('lotDetail', { lotId: inward.lot_id, fixRate: true });
   }
 
-  const valid = partyName.trim() && vehicleId && Number(quantity) > 0 && Number(sellingPrice) >= 0;
+  const valid = partyName.trim() && vehicle.valid && Number(quantity) > 0 && Number(sellingPrice) >= 0;
 
   return (
     <Screen title="Night Arrivals" nav={nav} onBack={nav.pop} error={err}>
@@ -76,9 +70,8 @@ export default function NightArrivalScreen({ nav }) {
       {showForm && (
         <Card>
           <Field label="Supplier / Party" value={partyName} onChangeText={setPartyName} placeholder="e.g. Night Supplier" />
-          <VehiclePicker vehicles={vehicles} selectedId={vehicleId} onSelect={setVehicleId}
-            onAddNew={() => nav.push('vehicleMaster')} />
-          <Field label="Quality" value={quality} onChangeText={setQuality} />
+          <VehiclePicker {...vehicle.fieldProps} />
+          <Dropdown label="Quality Grade" options={gradeOptions(grades)} value={quality} onChange={setQuality} />
           <Field label="Quantity (boxes)" value={quantity} onChangeText={setQuantity} keyboard="numeric" />
           <Field label="Predetermined selling price (₹/box)" value={sellingPrice} onChangeText={setSellingPrice} keyboard="numeric" />
           <Btn title={saving ? 'Saving…' : 'SAVE Night Stock'} onPress={save} disabled={!valid || saving} />
