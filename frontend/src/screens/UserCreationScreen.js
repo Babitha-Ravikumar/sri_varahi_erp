@@ -54,7 +54,7 @@ export default function UserCreationScreen({ nav }) {
   }
 
   return (
-    <Screen title="User Creation" onBack={nav.pop} error={err}>
+    <Screen title="User Creation" nav={nav} onBack={nav.pop} error={err}>
       <ScrollView
         contentContainerStyle={{ padding: 14, paddingBottom: 44 }}
         keyboardShouldPersistTaps="handled"

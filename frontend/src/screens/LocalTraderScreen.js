@@ -43,7 +43,7 @@ export default function LocalTraderScreen({ nav }) {
   const valid = (traderId || traderName.trim()) && Number(quantity) > 0 && Number(rate) >= 0;
 
   return (
-    <Screen title="Local Trader Purchase" onBack={nav.pop} error={err}>
+    <Screen title="Local Trader Purchase" nav={nav} onBack={nav.pop} error={err}>
       <Card>
         <Picker label="Local Trader" items={traders || []} selectedId={traderId} onSelect={setTraderId}
           placeholder="Select trader…" />

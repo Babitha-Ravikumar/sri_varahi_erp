@@ -8,6 +8,7 @@ import { Text, View, Alert } from 'react-native';
 import { get, post } from '../api';
 import { Card, Field, Btn, Screen, Row, C, lotSeq } from '../components/ui';
 import LotCreatedModal from '../components/LotCreatedModal';
+import VehiclePicker from '../components/VehiclePicker';
 
 export default function NightArrivalScreen({ nav }) {
   const [list, setList] = useState(null);
@@ -16,8 +17,8 @@ export default function NightArrivalScreen({ nav }) {
 
   // form
   const [partyName, setPartyName] = useState('');
-  const [vehicleNumber, setVehicleNumber] = useState('');
-  const [driverName, setDriverName] = useState('');
+  const [vehicles, setVehicles] = useState([]);
+  const [vehicleId, setVehicleId] = useState(null);
   const [quality, setQuality] = useState('');
   const [quantity, setQuantity] = useState('');
   const [sellingPrice, setSellingPrice] = useState('');
@@ -33,11 +34,21 @@ export default function NightArrivalScreen({ nav }) {
   }, []);
   React.useEffect(() => { load(); }, [load]);
 
+  // Vehicle Master list for the searchable Vehicle dropdown.
+  React.useEffect(() => {
+    get('/vehicles').then(setVehicles).catch((e) => setErr(e.message));
+  }, []);
+
+  // The selected vehicle auto-fills its number & driver (from the master).
+  const selectedVehicle = vehicles.find((v) => String(v.id) === String(vehicleId)) || null;
+
   async function save() {
     setSaving(true); setErr('');
     try {
       const r = await post('/inwards/night-arrival', {
-        party_name: partyName, vehicle_number: vehicleNumber, driver_name: driverName,
+        party_name: partyName,
+        vehicle_number: selectedVehicle ? selectedVehicle.vehicle_number : null,
+        driver_name: selectedVehicle ? selectedVehicle.driver_name : null,
         quality, quantity: Number(quantity), selling_price: Number(sellingPrice),
       });
       setCreated({
@@ -45,7 +56,7 @@ export default function NightArrivalScreen({ nav }) {
         amount: Number(sellingPrice) * Number(quantity),
       });
       setShowForm(false);
-      setPartyName(''); setVehicleNumber(''); setDriverName(''); setQuality(''); setQuantity(''); setSellingPrice('');
+      setPartyName(''); setVehicleId(null); setQuality(''); setQuantity(''); setSellingPrice('');
       load();
     } catch (e) { setErr(e.message); }
     finally { setSaving(false); }
@@ -57,16 +68,16 @@ export default function NightArrivalScreen({ nav }) {
     nav.push('lotDetail', { lotId: inward.lot_id, fixRate: true });
   }
 
-  const valid = partyName.trim() && vehicleNumber.trim() && Number(quantity) > 0 && Number(sellingPrice) >= 0;
+  const valid = partyName.trim() && vehicleId && Number(quantity) > 0 && Number(sellingPrice) >= 0;
 
   return (
-    <Screen title="Night Arrivals" onBack={nav.pop} error={err}>
+    <Screen title="Night Arrivals" nav={nav} onBack={nav.pop} error={err}>
       <Btn title={showForm ? 'Close form' : '＋ New Night Arrival'} kind="accent" onPress={() => setShowForm(!showForm)} />
       {showForm && (
         <Card>
           <Field label="Supplier / Party" value={partyName} onChangeText={setPartyName} placeholder="e.g. Night Supplier" />
-          <Field label="Vehicle number *" value={vehicleNumber} onChangeText={setVehicleNumber} placeholder="e.g. AP21 CD 7788" />
-          <Field label="Driver name" value={driverName} onChangeText={setDriverName} />
+          <VehiclePicker vehicles={vehicles} selectedId={vehicleId} onSelect={setVehicleId}
+            onAddNew={() => nav.push('vehicleMaster')} />
           <Field label="Quality" value={quality} onChangeText={setQuality} />
           <Field label="Quantity (boxes)" value={quantity} onChangeText={setQuantity} keyboard="numeric" />
           <Field label="Predetermined selling price (₹/box)" value={sellingPrice} onChangeText={setSellingPrice} keyboard="numeric" />

@@ -2,8 +2,9 @@
 import React, { useEffect, useState } from 'react';
 import { Text } from 'react-native';
 import { get, post } from '../api';
-import { Card, Field, Picker, Btn, Screen, C } from '../components/ui';
+import { Card, Field, Btn, Screen, C } from '../components/ui';
 import LotCreatedModal from '../components/LotCreatedModal';
+import VehiclePicker from '../components/VehiclePicker';
 
 export default function LocalFarmerScreen({ nav }) {
   const [vehicles, setVehicles] = useState([]);
@@ -42,11 +43,10 @@ export default function LocalFarmerScreen({ nav }) {
   const valid = vehicleId && partyName.trim() && Number(quantity) > 0;
 
   return (
-    <Screen title="Local Farmer Inward" onBack={nav.pop} error={err}>
+    <Screen title="Local Farmer Inward" nav={nav} onBack={nav.pop} error={err}>
       <Card>
-        <Picker label="Vehicle (from Vehicle Master)" items={vehicles} selectedId={vehicleId}
-          onSelect={setVehicleId} placeholder="Select vehicle…"
-          renderLabel={(v) => `${v.vehicle_number}${v.driver_name ? ' · ' + v.driver_name : ''}`} />
+        <VehiclePicker vehicles={vehicles} selectedId={vehicleId} onSelect={setVehicleId}
+          onAddNew={() => nav.push('vehicleMaster')} />
         <Field label="Farmer / Party name" value={partyName} onChangeText={setPartyName} placeholder="e.g. Koteswara Rao" />
         <Field label="Quality" value={quality} onChangeText={setQuality} placeholder="e.g. A Grade" />
         <Field label="Quantity (boxes)" value={quantity} onChangeText={setQuantity} keyboard="numeric" placeholder="e.g. 10" />
@@ -61,8 +61,11 @@ export default function LocalFarmerScreen({ nav }) {
         lotNumber={created?.lotNumber}
         boxes={created?.boxes}
         amount={null}
-        extraRows={[['Vehicle', (vehicles.find((v) => String(v.id) === String(vehicleId)) || {}).vehicle_number || '-'],
-                    ['Party', partyName]]}
+        extraRows={[
+          ['Vehicle', (vehicles.find((v) => String(v.id) === String(vehicleId)) || {}).vehicle_number || '-'],
+          ['Driver', (vehicles.find((v) => String(v.id) === String(vehicleId)) || {}).driver_name || '-'],
+          ['Party', partyName],
+        ]}
         actions={[
           { title: 'Open Auction', onPress: () => nav.replace('liveAuction', { lotId: created.lotId }) },
           { title: 'Another Entry', onPress: anotherEntry },

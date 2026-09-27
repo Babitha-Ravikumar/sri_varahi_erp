@@ -30,7 +30,7 @@ export default function DrillDownScreen({ nav, params }) {
   const totalBoxes = (rows || []).reduce((s, r) => s + Number(r.quantity || 0), 0);
 
   return (
-    <Screen title={title} onBack={nav.pop} error={err}>
+    <Screen title={title} nav={nav} onBack={nav.pop} error={err}>
       {!rows && <Loading label="Loading details…" />}
       {rows && (
         <>

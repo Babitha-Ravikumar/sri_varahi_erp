@@ -7,6 +7,7 @@ import React, { useCallback, useEffect, useState } from 'react';
 import { View, Text, StyleSheet, Alert, Linking } from 'react-native';
 import { get, post, billPdfUrl } from '../api';
 import { Card, Field, SearchSelect, ComboPicker, Btn, Screen, Row, C, lotSeq } from '../components/ui';
+import SuccessModal from '../components/SuccessModal';
 
 export default function LiveAuctionScreen({ nav, params }) {
   const [lots, setLots] = useState(null);
@@ -23,6 +24,9 @@ export default function LiveAuctionScreen({ nav, params }) {
   const [rate, setRate] = useState('');
   const [qty, setQty] = useState('');
   const [saving, setSaving] = useState(false);
+  // success popups
+  const [saved, setSaved] = useState(null);      // allocation saved
+  const [billsDone, setBillsDone] = useState(null); // bills generated
 
   const loadLots = useCallback(async () => {
     try {
@@ -57,7 +61,12 @@ export default function LiveAuctionScreen({ nav, params }) {
       setQty('');
       setAuction(await get(`/auctions/${auction.id}`));
       setLots(await get('/lots'));
-      Alert.alert('Saved ✓', `${r.allocation.quantity} boxes → ${r.customer.name} @ ₹${rate}. Remaining ${Number(r.lot.remaining_quantity)}.`);
+      setSaved({
+        customer: r.customer.name,
+        quantity: Number(r.allocation.quantity),
+        rate: Number(rate),
+        remaining: Number(r.lot.remaining_quantity),
+      });
     } catch (e) { setErr(e.message); Alert.alert('Rejected', e.message); }
     finally { setSaving(false); }
   }
@@ -70,20 +79,19 @@ export default function LiveAuctionScreen({ nav, params }) {
       for (const b of bills) {
         try { await Linking.openURL(billPdfUrl(b.id)); } catch (_) { /* download optional */ }
       }
-      Alert.alert('Bills ready ✓', bills.map((b) => `${b.bill_number}: ₹${b.total_amount}`).join('\n')
-        + '\n\nPDF bills are downloading.');
+      setBillsDone(bills.map((b) => ({ number: b.bill_number, customer: b.customer_name, amount: Number(b.total_amount) })));
       setAuction(await get(`/auctions/${auction.id}`));
     } catch (e) { Alert.alert('Error', e.message); }
   }
 
   const totalAllocated = auction ? auction.allocations.reduce((s, a) => s + Number(a.quantity), 0) : 0;
   const valid = auction && Number(qty) > 0 && Number(rate) >= 0 && (customerId || customerText.trim());
-  const selectedLot = (lots || []).find((l) => l.id === Number(lotId));
+  const selectedLot = (lots || []).find((l) => String(l.id) === String(lotId));
   // searchable lot list: lots with stock, always including the selected lot
-  const lotItems = (lots || []).filter((l) => Number(l.remaining_quantity) > 0 || l.id === Number(lotId));
+  const lotItems = (lots || []).filter((l) => Number(l.remaining_quantity) > 0 || String(l.id) === String(lotId));
 
   return (
-    <Screen title="Live Auction" onBack={nav.pop} error={err}>
+    <Screen title="Live Auction" nav={nav} onBack={nav.pop} error={err}>
       {/* Select Lot - live searchable dropdown (type lot number / party / vehicle) */}
       <Card>
         <SearchSelect label="Select Lot" items={lotItems} selectedId={lotId ? Number(lotId) : null}
@@ -106,7 +114,7 @@ export default function LiveAuctionScreen({ nav, params }) {
 
       {/* Rate + Customer + Quantity - the allocation entry */}
       {auction && (
-        <Card style={{ borderWidth: 2, borderColor: C.accent }}>
+        <Card>
           <Text style={s.t}>Rate · Customer · Quantity</Text>
           <Field label="Rate (₹/box)" value={rate} onChangeText={setRate} keyboard="numeric" placeholder="e.g. 100" />
           <ComboPicker label="Customer" items={customers} value={customerText} onChangeText={setCustomerText}
@@ -133,13 +141,43 @@ export default function LiveAuctionScreen({ nav, params }) {
             </View>
           ))}
           {auction.allocations.length === 0 && <Text style={s.muted}>No allocations yet.</Text>}
-
-          {auction.allocations.length > 0 && (
-            <Btn title="🧾 Generate Bills (Billing + Cashier receive automatically)" kind="accent" onPress={generateBills} />
-          )}
-          <Btn title="Corrections (authorized)" onPress={() => nav.push('corrections', { auctionId: auction.id })} />
         </Card>
       )}
+
+      <SuccessModal
+        visible={!!saved}
+        onClose={() => setSaved(null)}
+        title="Allocation Successful ✓"
+        sections={[{
+          title: 'ALLOCATION DETAILS',
+          rows: [
+            ['Lot Number', selectedLot ? lotSeq(selectedLot.lot_number) : '-'],
+            ['Customer', saved?.customer || '-'],
+            ['Quantity', `${saved?.quantity} boxes`],
+            ['Rate', `₹${saved?.rate}`],
+            ['Amount', `₹${((saved?.quantity || 0) * (saved?.rate || 0)).toFixed(2)}`],
+            ['Remaining in lot', `${saved?.remaining} boxes`],
+          ],
+        }]}
+        actionSectionTitle="NEXT ALLOCATION"
+        actions={[
+          { title: 'Generate Bill', kind: 'accent', onPress: () => { setSaved(null); generateBills(); } },
+          { title: 'Correction', onPress: () => { setSaved(null); nav.push('corrections', { auctionId: auction.id }); } },
+          { title: 'Done', kind: 'primary', onPress: () => setSaved(null) },
+        ]}
+      />
+
+      <SuccessModal
+        visible={!!billsDone}
+        onClose={() => setBillsDone(null)}
+        title="Bills Generated ✓"
+        subtitle="Billing & Cashier updated automatically · PDFs downloading"
+        sections={[{
+          title: 'GENERATED BILLS',
+          rows: (billsDone || []).map((b) => [b.number, `₹${b.amount}`]),
+        }]}
+        actions={[{ title: 'Done', kind: 'primary', onPress: () => setBillsDone(null) }]}
+      />
     </Screen>
   );
 }

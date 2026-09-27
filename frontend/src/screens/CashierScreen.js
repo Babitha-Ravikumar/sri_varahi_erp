@@ -10,7 +10,8 @@
 import React, { useCallback, useState } from 'react';
 import { View, Text, Alert, Linking } from 'react-native';
 import { get, post } from '../api';
-import { Card, Field, Btn, Screen, Row, C, Badge, SectionTitle } from '../components/ui';
+import { Card, Field, Btn, Screen, Row, C, Badge, Chip, SectionTitle } from '../components/ui';
+import SuccessModal from '../components/SuccessModal';
 
 /** Market's UPI ID (VPA) shown in the payment apps. Change here when needed. */
 const UPI_VPA = 'srivarahimarket@upi';
@@ -32,15 +33,24 @@ export default function CashierScreen({ nav, params }) {
   const [bills, setBills] = useState(null);
   const [err, setErr] = useState('');
   const [bill, setBill] = useState(params.billId ? null : null);
+  // collected-payment success popup
+  const [collected, setCollected] = useState(null);
+
+  // filters: date for the day's summary + bill list; status & search for the list
+  const [dateF, setDateF] = useState('');
+  const [statusF, setStatusF] = useState('due'); // due = unpaid + part_paid
+  const [q, setQ] = useState('');
 
   const load = useCallback(async () => {
     try {
-      setSummary(await get('/cashier/summary'));
-      setBills(await get('/bills'));
+      const d = dateF.trim() || '';
+      setSummary(await get(`/cashier/summary${d ? `?date=${encodeURIComponent(d)}` : ''}`));
+      // bills: the selected date, or ALL dates when no date is set
+      setBills(await get(`/bills?date=${d ? encodeURIComponent(d) : 'all'}`));
       if (params.billId) setBill(await get(`/bills/${params.billId}`));
       setErr('');
     } catch (e) { setErr(e.message); }
-  }, [params.billId]);
+  }, [params.billId, dateF]);
   React.useEffect(() => { load(); }, [load]);
 
   const [amount, setAmount] = useState('');
@@ -58,7 +68,15 @@ export default function CashierScreen({ nav, params }) {
     const r = await post(`/bills/${bill.id}/payments`, {
       amount: Number(amount), method, ...(reference ? { reference } : {}),
     });
-    Alert.alert('Collected ✓', `₹${amount} via ${method.toUpperCase()} · bill ${r.bill_status} · balance ₹${r.balance}`);
+    setCollected({
+      bill: bill.bill_number,
+      customer: bill.customer_name,
+      amount: Number(amount),
+      method: method.toUpperCase(),
+      reference: reference || null,
+      billStatus: String(r.bill_status).replace(/_/g, ' '),
+      balance: Number(r.balance),
+    });
     resetEntry();
     load();
   }
@@ -109,11 +127,37 @@ export default function CashierScreen({ nav, params }) {
     : method === 'upi' ? `📱 Open UPI Apps & Pay ₹${amount || '…'}`
     : '🏦 Record Bank Payment';
 
+  const text = q.trim().toLowerCase();
+  const filteredBills = (bills || []).filter((b) => {
+    if (statusF === 'due' && b.status !== 'unpaid' && b.status !== 'part_paid') return false;
+    if (statusF !== 'due' && statusF !== 'all' && b.status !== statusF) return false;
+    if (text
+      && !String(b.bill_number).toLowerCase().includes(text)
+      && !String(b.customer_name || '').toLowerCase().includes(text)
+      && !String(b.lot_number || '').toLowerCase().includes(text)
+      && !String(b.lot_number || '').split('-').pop().startsWith(text)) return false;
+    return true;
+  });
+
   return (
-    <Screen title="Cashier" onBack={nav.pop} error={err}>
+    <Screen title="Cashier" nav={nav} onBack={nav.pop} error={err}>
+      <Card>
+        <SectionTitle>Filter</SectionTitle>
+        <Field label="Date (YYYY-MM-DD, blank = all dates)" value={dateF} onChangeText={setDateF} placeholder="e.g. 2026-09-27" />
+        <Field label="Search bill / customer / lot" value={q} onChangeText={setQ} placeholder="e.g. B-2026… / Ramesh / 001" />
+        <View style={s.chipRow}>
+          <Chip label="Due" active={statusF === 'due'} onPress={() => setStatusF('due')} />
+          <Chip label="Unpaid" active={statusF === 'unpaid'} onPress={() => setStatusF('unpaid')} />
+          <Chip label="Partially Paid" active={statusF === 'part_paid'} onPress={() => setStatusF('part_paid')} />
+          <Chip label="Paid" active={statusF === 'paid'} onPress={() => setStatusF('paid')} />
+          <Chip label="All" active={statusF === 'all'} onPress={() => setStatusF('all')} />
+        </View>
+        <Text style={s.filterInfo}>{filteredBills.length} of {(bills || []).length} bills shown</Text>
+      </Card>
+
       {summary && (
         <Card>
-          <Row label="Collected today" value={`₹${summary.collected}`} strong />
+          <Row label={dateF.trim() ? `Collected (${dateF.trim()})` : 'Collected (all dates)'} value={`₹${summary.collected}`} strong />
           <Row label="Payments" value={String(summary.payment_count)} />
           {summary.by_method.map((m) => (
             <Row key={m.method} label={m.method.toUpperCase()} value={`₹${Number(m.amount)} (${m.count})`} />
@@ -158,18 +202,40 @@ export default function CashierScreen({ nav, params }) {
         </Card>
       )}
 
-      <SectionTitle>Unpaid / part-paid bills</SectionTitle>
-      {(bills || []).filter((b) => b.status === 'unpaid' || b.status === 'part_paid').map((b) => (
+      <SectionTitle>{statusF === 'due' ? 'Unpaid / part-paid bills' : 'Bills'}</SectionTitle>
+      {filteredBills.map((b) => (
         <Card key={b.id}>
           <View style={s.head}>
             <Text style={s.billNo}>{b.bill_number}</Text>
-            <Badge tone={b.status === 'part_paid' ? 'warning' : 'danger'}>{b.status.replace(/_/g, ' ')}</Badge>
+            <Badge tone={b.status === 'paid' ? 'success' : b.status === 'part_paid' ? 'warning' : 'danger'}>
+              {b.status.replace(/_/g, ' ')}
+            </Badge>
           </View>
           <Row label="Customer" value={b.customer_name} />
+          <Row label="Lot" value={String(b.lot_number || '').split('-').pop()} />
           <Row label="Balance" value={`₹${Number(b.total_amount) - Number(b.paid_amount)}`} />
           <Btn title="Collect" kind="accent" onPress={async () => setBill(await get(`/bills/${b.id}`))} />
         </Card>
       ))}
+
+      <SuccessModal
+        visible={!!collected}
+        onClose={() => setCollected(null)}
+        title="Payment Collected ✓"
+        sections={[{
+          title: 'PAYMENT DETAILS',
+          rows: [
+            ['Bill', collected?.bill || '-'],
+            ['Customer', collected?.customer || '-'],
+            ['Amount', `₹${collected?.amount}`],
+            ['Method', collected?.method],
+            ...(collected?.reference ? [['Reference', collected.reference]] : []),
+            ['Bill status', collected?.billStatus],
+            ['Balance due', `₹${collected?.balance}`],
+          ],
+        }]}
+        actions={[{ title: 'Done', kind: 'primary', onPress: () => setCollected(null) }]}
+      />
     </Screen>
   );
 }
@@ -178,6 +244,8 @@ const s = {
   t: { fontWeight: '700', marginBottom: 4, fontSize: 15, color: C.text },
   head: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6, gap: 8 },
   billNo: { fontSize: 15, fontWeight: '800', color: C.text, flexShrink: 1 },
+  chipRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 4 },
+  filterInfo: { fontSize: 12, color: C.muted, marginTop: 8 },
   methodRow: { flexDirection: 'row', gap: 8, marginTop: 4 },
   methodBtn: { flex: 1, marginTop: 0, paddingHorizontal: 4 },
   bankBox: {

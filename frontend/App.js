@@ -5,8 +5,10 @@
  * Android hardware back: navigates to the previous screen in the flow;
  * the app only exits from a root screen (login / dashboard / forced reset).
  */
-import React, { useEffect, useReducer } from 'react';
+import React, { useEffect, useReducer, useState } from 'react';
 import { StatusBar, BackHandler } from 'react-native';
+
+import Sidebar from './src/components/Sidebar';
 
 import LoginScreen from './src/screens/LoginScreen';
 import ForgotPasswordScreen from './src/screens/ForgotPasswordScreen';
@@ -62,6 +64,12 @@ function navReducer(state, action) {
       return { stack: [{ name: action.name, params: action.params || {} }] };
     case 'home':
       return { stack: [{ name: 'dashboard', params: {} }] };
+    // Jump straight to a main module (sidebar navigation): dashboard stays
+    // underneath so the hardware back button returns to the dashboard.
+    case 'go':
+      return action.name === 'dashboard'
+        ? { stack: [{ name: 'dashboard', params: {} }] }
+        : { stack: [{ name: 'dashboard', params: {} }, { name: action.name, params: action.params || {} }] };
     default:
       return state;
   }
@@ -69,8 +77,11 @@ function navReducer(state, action) {
 
 export default function App() {
   const [state, dispatch] = useReducer(navReducer, initial);
+  const [menuOpen, setMenuOpen] = useState(false);
   const current = state.stack[state.stack.length - 1];
-  const Screen_ = SCREENS[current.name];
+  // Defensive: if a screen name isn't registered (e.g. a stale deep link),
+  // fall back to the dashboard instead of crashing with "element type invalid".
+  const Screen_ = SCREENS[current.name] || DashboardScreen;
 
   const nav = {
     push: (name, params) => dispatch({ type: 'push', name, params }),
@@ -78,6 +89,8 @@ export default function App() {
     pop: () => dispatch({ type: 'pop' }),
     reset: (name, params) => dispatch({ type: 'reset', name, params }),
     home: () => dispatch({ type: 'home' }),
+    go: (name, params) => dispatch({ type: 'go', name, params }),
+    openMenu: () => setMenuOpen(true),
     screen: current.name,
   };
 
@@ -93,10 +106,14 @@ export default function App() {
     return () => sub.remove();
   }, [state.stack.length]);
 
+  // Close the sidebar whenever the screen changes underneath it.
+  useEffect(() => { setMenuOpen(false); }, [current.name]);
+
   return (
     <>
       <StatusBar barStyle="light-content" backgroundColor="#1a5c1a" />
       <Screen_ nav={nav} params={current.params} />
+      <Sidebar visible={menuOpen} activeScreen={current.name} onClose={() => setMenuOpen(false)} nav={nav} />
     </>
   );
 }

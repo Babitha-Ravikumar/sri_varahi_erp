@@ -2,14 +2,14 @@
  * REST client - the ONLY way the app talks to data.
  * React Native never connects to PostgreSQL directly.
  *
- * 10.150.31.183 = backend machine's LAN IP. Works for:
- *  - Physical devices on the same Wi-Fi (e.g. Oppo A5 2020)
- *  - The Android emulator (it can reach LAN IPs)
- * If your PC's IP changes (check `ipconfig`), update it here.
+ * http://10.0.2.2:3000 = the ANDROID EMULATOR's alias for the host machine's
+ * localhost - used for emulator verification.
+ * For PHYSICAL devices on the same Wi-Fi, replace with the backend machine's
+ * LAN IP (e.g. http://10.43.5.183:3000/api - check `ipconfig` if it changes).
  * USB-only alternative: run `adb reverse tcp:3000 tcp:3000`
  * and use http://localhost:3000/api instead.
  */
-export const API_BASE = 'http://10.150.31.183:3000/api';
+export const API_BASE = 'http://10.0.2.2:3000/api';
 
 let currentUserId = null;
 let currentUser = null;

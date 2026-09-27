@@ -72,7 +72,9 @@ async function generateBillsForAuction(auctionId, user) {
 async function listBills({ date, status, customer_id } = {}) {
   const params = [];
   let where = 'WHERE 1=1';
-  if (date) { params.push(date); where += ` AND b.created_at::date = $${params.length}`; }
+  // date='all' → every date; no date → today only (existing default).
+  if (date === 'all') { /* no date filter */ }
+  else if (date) { params.push(date); where += ` AND b.created_at::date = $${params.length}`; }
   else where += ` AND b.created_at::date = current_date`;
   if (status) { params.push(status); where += ` AND b.status = $${params.length}`; }
   if (customer_id) { params.push(customer_id); where += ` AND b.customer_id = $${params.length}`; }

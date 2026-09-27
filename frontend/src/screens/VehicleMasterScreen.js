@@ -58,7 +58,7 @@ export default function VehicleMasterScreen({ nav }) {
   }
 
   return (
-    <Screen title="Vehicle Master" onBack={nav.pop} error={err}>
+    <Screen title="Vehicle Master" nav={nav} onBack={nav.pop} error={err}>
       <Card>
         <Text style={s.t}>{editing ? 'Edit vehicle' : 'Add regular vehicle'}</Text>
         <Field label="Vehicle number *" value={number} onChangeText={setNumber} placeholder="e.g. AP36 AB 1234" />

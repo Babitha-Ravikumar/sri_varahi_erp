@@ -6,7 +6,7 @@
 import React from 'react';
 import {
   View, Text, TextInput, TouchableOpacity, StyleSheet, ScrollView,
-  ActivityIndicator, Alert, StatusBar, Platform,
+  ActivityIndicator, Alert, StatusBar, Platform, Modal,
 } from 'react-native';
 
 /**
@@ -113,6 +113,176 @@ export function Badge({ children, tone = 'neutral' }) {
     <View style={[s.badge, { backgroundColor: t.bg }]}>
       <Text style={[s.badgeText, { color: t.fg }]} numberOfLines={1}>{children}</Text>
     </View>
+  );
+}
+
+/** Filter chip (tap to activate) - shared by all filter sections. */
+export function Chip({ label, active, onPress }) {
+  return (
+    <TouchableOpacity
+      style={[s.chip, active && s.chipActive]}
+      onPress={onPress}
+      accessibilityRole="button"
+      accessibilityLabel={label}
+      accessibilityState={{ selected: !!active }}
+    >
+      <Text style={[s.chipText, active && s.chipTextActive]} numberOfLines={1}>{label}</Text>
+    </TouchableOpacity>
+  );
+}
+
+/**
+ * FILTER TOOLBAR - a slim horizontal strip directly below the page header.
+ * All filter controls sit in ONE line (scrolls horizontally if needed);
+ * no separate filter card/box.
+ */
+export function Toolbar({ children }) {
+  return (
+    <ScrollView
+      horizontal
+      showsHorizontalScrollIndicator={false}
+      style={s.toolbarWrap}
+      contentContainerStyle={s.toolbar}
+      keyboardShouldPersistTaps="handled"
+    >
+      {children}
+    </ScrollView>
+  );
+}
+
+/** Compact search input used inside the filter Toolbar. */
+export function ToolInput({ value, onChangeText, placeholder, icon = '🔍' }) {
+  return (
+    <View style={s.toolInputWrap}>
+      <Text style={s.toolInputIcon}>{icon}</Text>
+      <TextInput
+        style={s.toolInput}
+        value={value}
+        onChangeText={onChangeText}
+        placeholder={placeholder}
+        placeholderTextColor="#9aa096"
+        autoCorrect={false}
+        underlineColorAndroid="transparent"
+      />
+    </View>
+  );
+}
+
+/**
+ * Date picker field. Shows 📅 + the selected date (or the all-dates label);
+ * tapping opens a compact calendar popup (DatePickerModal).
+ */
+export function DateField({ value, onChange, allLabel = 'All Dates' }) {
+  const [open, setOpen] = React.useState(false);
+  return (
+    <View>
+      <TouchableOpacity
+        style={[s.dateBtn, value ? s.dateBtnActive : null]}
+        onPress={() => setOpen(true)}
+        accessibilityRole="button"
+        accessibilityLabel="Pick date filter"
+      >
+        <Text style={s.dateIcon}>📅</Text>
+        <Text style={[s.dateText, value ? s.dateTextActive : null]} numberOfLines={1}>
+          {value || allLabel}
+        </Text>
+        {value ? (
+          <TouchableOpacity
+            style={s.dateClear}
+            onPress={() => onChange('')}
+            accessibilityRole="button"
+            accessibilityLabel="Clear date filter"
+          >
+            <Text style={s.dateClearText}>✕</Text>
+          </TouchableOpacity>
+        ) : null}
+      </TouchableOpacity>
+      <DatePickerModal
+        visible={open}
+        value={value}
+        onPick={(d) => { onChange(d); setOpen(false); }}
+        onClose={() => setOpen(false)}
+      />
+    </View>
+  );
+}
+
+const MONTH_NAMES = ['January', 'February', 'March', 'April', 'May', 'June',
+  'July', 'August', 'September', 'October', 'November', 'December'];
+const DOW = ['S', 'M', 'T', 'W', 'T', 'F', 'S'];
+
+/** Compact calendar popup - the shared date picker for all filters. */
+export function DatePickerModal({ visible, value, onPick, onClose }) {
+  const initial = value ? new Date(value + 'T00:00:00') : new Date();
+  const [cur, setCur] = React.useState({ y: initial.getFullYear(), m: initial.getMonth() });
+  const [mountedVisible, setMountedVisible] = React.useState(false);
+
+  React.useEffect(() => {
+    if (visible) {
+      const d = value ? new Date(value + 'T00:00:00') : new Date();
+      setCur({ y: d.getFullYear(), m: d.getMonth() });
+      setMountedVisible(true);
+    }
+  }, [visible]);
+
+  if (!visible || !mountedVisible) return null;
+
+  const firstDow = new Date(cur.y, cur.m, 1).getDay();
+  const daysInMonth = new Date(cur.y, cur.m + 1, 0).getDate();
+  const cells = [
+    ...Array.from({ length: firstDow }, () => null),
+    ...Array.from({ length: daysInMonth }, (_, i) => i + 1),
+  ];
+  const iso = (day) => `${cur.y}-${String(cur.m + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+  const shift = (n) => {
+    const d = new Date(cur.y, cur.m + n, 1);
+    setCur({ y: d.getFullYear(), m: d.getMonth() });
+  };
+
+  return (
+    <Modal transparent visible animationType="fade" onRequestClose={onClose}>
+      <View style={s.calOverlay}>
+        <View style={s.calCard}>
+          <View style={s.calHead}>
+            <TouchableOpacity onPress={() => shift(-1)} style={s.calNav} accessibilityRole="button" accessibilityLabel="Previous month">
+              <Text style={s.calNavText}>‹</Text>
+            </TouchableOpacity>
+            <Text style={s.calTitle}>{MONTH_NAMES[cur.m]} {cur.y}</Text>
+            <TouchableOpacity onPress={() => shift(1)} style={s.calNav} accessibilityRole="button" accessibilityLabel="Next month">
+              <Text style={s.calNavText}>›</Text>
+            </TouchableOpacity>
+          </View>
+          <View style={s.calGrid}>
+            {DOW.map((d, i) => (
+              <Text key={'dow' + i} style={s.calDow}>{d}</Text>
+            ))}
+            {cells.map((day, i) => (
+              day == null
+                ? <View key={'e' + i} style={s.calCell} />
+                : (
+                  <TouchableOpacity
+                    key={'d' + i}
+                    style={[s.calCell, s.calDay, value === iso(day) && s.calDayActive]}
+                    onPress={() => onPick(iso(day))}
+                    accessibilityRole="button"
+                    accessibilityLabel={iso(day)}
+                  >
+                    <Text style={[s.calDayText, value === iso(day) && s.calDayTextActive]}>{day}</Text>
+                  </TouchableOpacity>
+                )
+            ))}
+          </View>
+          <View style={s.calFoot}>
+            <TouchableOpacity style={s.calBtn} onPress={onClose} accessibilityRole="button">
+              <Text style={s.calBtnText}>Cancel</Text>
+            </TouchableOpacity>
+            <TouchableOpacity style={[s.calBtn, s.calBtnPrimary]} onPress={() => onPick('')} accessibilityRole="button">
+              <Text style={s.calBtnTextPrimary}>All Dates</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </View>
+    </Modal>
   );
 }
 
@@ -379,23 +549,46 @@ export function Picker({ label, items, selectedId, onSelect, placeholder, render
 
 /* ---------- Screen shell ---------- */
 
-export function Screen({ children, onBack, title, error }) {
+/**
+ * Screen shell with the FIXED Sri Varahi ERP header (stays visible while
+ * scrolling - it sits above the ScrollView). Header layout:
+ *   LEFT column  : Back button (top), menu ☰ button (below)
+ *   CENTER       : "SRI VARAHI ERP" brand line over the screen title
+ * Pass `nav` to show the ☰ sidebar-navigation button (main module screens).
+ */
+export function Screen({ children, onBack, title, error, nav }) {
   return (
     <View style={s.screen}>
       <StatusBar barStyle="light-content" backgroundColor={Colors.primaryDark} />
       <View style={s.header}>
-        {onBack ? (
-          <TouchableOpacity
-            onPress={onBack}
-            style={s.backBtn}
-            accessibilityRole="button"
-            accessibilityLabel="Go back"
-          >
-            <Text style={s.backIcon}>←</Text>
-          </TouchableOpacity>
-        ) : <View style={s.backBtnPlaceholder} />}
-        <Text style={s.headerTitle} numberOfLines={1} ellipsizeMode="tail">{title}</Text>
-        <View style={s.backBtnPlaceholder} />
+        <View style={s.headerLeft}>
+          {onBack ? (
+            <TouchableOpacity
+              onPress={onBack}
+              style={s.backBtn}
+              accessibilityRole="button"
+              accessibilityLabel="Go back"
+            >
+              <Text style={s.backIcon}>←</Text>
+            </TouchableOpacity>
+          ) : <View style={s.navBtnPlaceholder} />}
+          {nav && nav.openMenu ? (
+            <TouchableOpacity
+              onPress={nav.openMenu}
+              style={s.menuBtn}
+              accessibilityRole="button"
+              accessibilityLabel="Open navigation menu"
+              testID="open-sidebar"
+            >
+              <Text style={s.menuIcon}>☰</Text>
+            </TouchableOpacity>
+          ) : <View style={s.navBtnPlaceholder} />}
+        </View>
+        <View style={s.headerTitles}>
+          <Text style={s.brandLine}>SRI VARAHI ERP</Text>
+          <Text style={s.headerTitle} numberOfLines={1} ellipsizeMode="tail">{title}</Text>
+        </View>
+        <View style={s.headerRight} />
       </View>
       {error ? (
         <View style={s.errorBar} accessibilityLiveRegion="polite">
@@ -434,17 +627,23 @@ const s = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     backgroundColor: Colors.primary,
-    paddingTop: Platform.OS === 'android' ? (StatusBar.currentHeight || 24) + 8 : 44,
-    paddingBottom: 12,
-    paddingHorizontal: 8,
+    paddingTop: Platform.OS === 'android' ? (StatusBar.currentHeight || 24) + 6 : 44,
+    paddingBottom: 8,
+    paddingHorizontal: 10,
     elevation: 4,
   },
+  headerLeft: { width: 46, alignItems: 'center', justifyContent: 'center' },
+  headerRight: { width: 8 },
+  headerTitles: { flex: 1, marginLeft: 4 },
+  brandLine: { color: Colors.accent, fontSize: 9.5, fontWeight: '800', letterSpacing: 1.6 },
   headerTitle: {
-    color: '#fff', fontSize: 17, fontWeight: '700', flex: 1, textAlign: 'center', letterSpacing: 0.3,
+    color: '#fff', fontSize: 16, fontWeight: '700', letterSpacing: 0.3,
   },
-  backBtn: { alignItems: 'center', justifyContent: 'center', minWidth: 44, minHeight: 40, paddingHorizontal: 10 },
-  backBtnPlaceholder: { minWidth: 44 },
-  backIcon: { color: '#fff', fontSize: 24, fontWeight: '700', lineHeight: 28 },
+  backBtn: { alignItems: 'center', justifyContent: 'center', width: 44, height: 34 },
+  menuBtn: { alignItems: 'center', justifyContent: 'center', width: 44, height: 30 },
+  navBtnPlaceholder: { width: 44, height: 34 },
+  backIcon: { color: '#fff', fontSize: 22, fontWeight: '700', lineHeight: 24 },
+  menuIcon: { color: '#fff', fontSize: 19, fontWeight: '800', lineHeight: 21 },
   body: { flex: 1 },
 
   card: {
@@ -480,6 +679,62 @@ const s = StyleSheet.create({
     alignSelf: 'flex-start', overflow: 'hidden',
   },
   badgeText: { fontSize: 11, fontWeight: '700', textTransform: 'uppercase', letterSpacing: 0.5 },
+
+  chip: {
+    borderRadius: 999, paddingHorizontal: 13, paddingVertical: 7,
+    backgroundColor: '#fff', borderWidth: 1, borderColor: Colors.border,
+  },
+  chipActive: { backgroundColor: Colors.primary, borderColor: Colors.primary, elevation: 1 },
+  chipText: { fontSize: 12.5, fontWeight: '700', color: Colors.muted },
+  chipTextActive: { color: '#fff' },
+
+  /* filter toolbar (slim single-line strip below the header) */
+  toolbarWrap: { flexGrow: 0, backgroundColor: '#fff', borderBottomWidth: 1, borderBottomColor: Colors.border },
+  toolbar: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingHorizontal: 10, paddingVertical: 8 },
+  toolInputWrap: {
+    flexDirection: 'row', alignItems: 'center', gap: 6,
+    backgroundColor: Colors.bg, borderRadius: 999, borderWidth: 1, borderColor: Colors.border,
+    paddingHorizontal: 10, height: 36, minWidth: 150,
+  },
+  toolInputIcon: { fontSize: 13 },
+  toolInput: { flex: 1, padding: 0, fontSize: 13, color: Colors.text, height: 34 },
+  dateBtn: {
+    flexDirection: 'row', alignItems: 'center', gap: 6, height: 36,
+    backgroundColor: '#fff', borderRadius: 999, borderWidth: 1, borderColor: Colors.border,
+    paddingHorizontal: 11,
+  },
+  dateBtnActive: { backgroundColor: Colors.primaryLight, borderColor: '#cfe4d1' },
+  dateIcon: { fontSize: 14 },
+  dateText: { fontSize: 12.5, fontWeight: '700', color: Colors.muted },
+  dateTextActive: { color: Colors.primary },
+  dateClear: { paddingLeft: 6 },
+  dateClearText: { fontSize: 12, color: Colors.muted, fontWeight: '800' },
+
+  /* calendar popup */
+  calOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.55)', alignItems: 'center', justifyContent: 'center', padding: 24 },
+  calCard: { width: '100%', maxWidth: 330, backgroundColor: '#fff', borderRadius: 14, overflow: 'hidden', elevation: 6 },
+  calHead: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
+    backgroundColor: Colors.primary, paddingHorizontal: 8, paddingVertical: 10,
+  },
+  calTitle: { color: '#fff', fontSize: 15, fontWeight: '800' },
+  calNav: { alignItems: 'center', justifyContent: 'center', width: 38, height: 34 },
+  calNavText: { color: '#fff', fontSize: 24, fontWeight: '800', lineHeight: 28 },
+  calGrid: { flexDirection: 'row', flexWrap: 'wrap', padding: 8 },
+  calDow: { width: '14.28%', textAlign: 'center', fontSize: 11, fontWeight: '800', color: Colors.accentDark, paddingVertical: 4 },
+  calCell: { width: '14.28%', alignItems: 'center', justifyContent: 'center' },
+  calDay: { paddingVertical: 7 },
+  calDayActive: { backgroundColor: Colors.primary, borderRadius: 999 },
+  calDayText: { fontSize: 13.5, color: Colors.text, fontWeight: '600' },
+  calDayTextActive: { color: '#fff', fontWeight: '800' },
+  calFoot: { flexDirection: 'row', gap: 8, padding: 12, paddingTop: 4 },
+  calBtn: {
+    flex: 1, borderRadius: 10, borderWidth: 1.5, borderColor: Colors.primary,
+    paddingVertical: 11, alignItems: 'center',
+  },
+  calBtnPrimary: { backgroundColor: Colors.primary, elevation: 1 },
+  calBtnText: { color: Colors.primary, fontWeight: '700', fontSize: 13.5 },
+  calBtnTextPrimary: { color: '#fff', fontWeight: '700', fontSize: 13.5 },
 
   empty: {
     alignItems: 'center', padding: 22, borderRadius: 12,

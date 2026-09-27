@@ -7,6 +7,7 @@ import React, { useCallback, useState } from 'react';
 import { Text, Alert, View, StyleSheet } from 'react-native';
 import { get, patch, post } from '../api';
 import { Card, Field, Picker, Btn, Screen, Row, C, lotSeq } from '../components/ui';
+import SuccessModal from '../components/SuccessModal';
 
 export default function CorrectionsScreen({ nav, params }) {
   const [lots, setLots] = useState(null);
@@ -22,6 +23,8 @@ export default function CorrectionsScreen({ nav, params }) {
   const [moveQty, setMoveQty] = useState('');
   const [moveCust, setMoveCust] = useState(null);
   const [reason, setReason] = useState('');
+  // success popup (shared by correct / transfer / split)
+  const [done, setDone] = useState(null);
 
   const loadLots = useCallback(async () => {
     try { setLots(await get('/lots')); setErr(''); } catch (e) { setErr(e.message); }
@@ -53,7 +56,7 @@ export default function CorrectionsScreen({ nav, params }) {
       if (Number(newRate) !== Number(sel.rate)) body.rate = Number(newRate);
       if (Object.keys(body).length === 1) { Alert.alert('No change', 'Nothing to correct.'); return; }
       await patch(`/allocations/${sel.id}`, body);
-      Alert.alert('Corrected ✓', 'Totals, Billing and Cashier updated automatically.');
+      setDone({ action: 'Corrected', customer: sel.customer_name, reason });
       setSel(null); loadLot(lotId); loadLots();
     } catch (e) { Alert.alert('Rejected', e.message); }
   }
@@ -64,7 +67,7 @@ export default function CorrectionsScreen({ nav, params }) {
       await post(`/allocations/${sel.id}/transfer`, {
         to_customer_id: moveCust, quantity: Number(moveQty), reason,
       });
-      Alert.alert('Transferred ✓', 'Billing and Cashier updated automatically.');
+      setDone({ action: 'Transferred', customer: sel.customer_name, reason });
       setSel(null); loadLot(lotId); loadLots();
     } catch (e) { Alert.alert('Rejected', e.message); }
   }
@@ -75,13 +78,13 @@ export default function CorrectionsScreen({ nav, params }) {
       await post(`/allocations/${sel.id}/split`, {
         to_customer_id: moveCust, quantity: Number(moveQty), reason,
       });
-      Alert.alert('Split ✓', 'New allocation created; Billing and Cashier updated.');
+      setDone({ action: 'Split', customer: sel.customer_name, reason });
       setSel(null); loadLot(lotId); loadLots();
     } catch (e) { Alert.alert('Rejected', e.message); }
   }
 
   return (
-    <Screen title="Post-Auction Corrections" onBack={nav.pop} error={err}>
+    <Screen title="Post-Auction Corrections" nav={nav} onBack={nav.pop} error={err}>
       <Card>
         <Picker label="Lot" items={lots || []} selectedId={lotId} onSelect={setLotId}
           placeholder="Select lot…" renderLabel={(l) => `${lotSeq(l.lot_number)} · ${l.party_name || ''}`} />
@@ -126,6 +129,22 @@ export default function CorrectionsScreen({ nav, params }) {
           )}
         </>
       )}
+
+      <SuccessModal
+        visible={!!done}
+        onClose={() => setDone(null)}
+        title={`${done?.action || ''} ✓`}
+        sections={[{
+          title: 'CORRECTION DETAILS',
+          rows: [
+            ['Action', done?.action || '-'],
+            ['Allocation of', done?.customer || '-'],
+            ['Reason', done?.reason || '-'],
+            ['Effect', 'Totals, Billing and Cashier updated automatically'],
+          ],
+        }]}
+        actions={[{ title: 'Done', kind: 'primary', onPress: () => setDone(null) }]}
+      />
     </Screen>
   );
 }

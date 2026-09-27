@@ -14,7 +14,7 @@ export default function SourceSelectScreen({ nav }) {
   const [selected, setSelected] = useState(null);
 
   return (
-    <Screen title="Select Purchase Source" onBack={nav.pop}>
+    <Screen title="Select Purchase Source" nav={nav} onBack={nav.pop}>
       <Text style={s.intro}>Choose the purchase source to start a new inward entry.</Text>
       {SOURCES.map((src) => {
         const on = selected === src.key;
